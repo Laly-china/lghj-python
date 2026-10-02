@@ -1,0 +1,21 @@
+# 量股化金 Python 复现工程 - 依赖清单-requirements.txt
+# 与 venv（env/venv-虚拟环境）实际已装版本一致（pip list 核对于 2026-10-02）
+# 安装源建议：https://pypi.tuna.tsinghua.edu.cn/simple
+
+fastapi==0.142.2
+uvicorn==0.54.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+SQLAlchemy==2.1.2
+PyMySQL==2.2.8
+cryptography==50.0.2
+redis==8.1.0
+httpx==0.28.1
+PyJWT==2.15.1
+openpyxl==3.1.5
+pandas==3.0.6
+numpy==2.5.3
+python-multipart==0.0.32
+litellm
+pytest==9.1.1
+torch

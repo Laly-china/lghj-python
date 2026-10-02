@@ -1,0 +1,62 @@
+# 同花顺风格主题 —— 参考 THS PC 行情终端：深色底 + 红色主色调 + 涨红跌绿
+# 基于 streamlit financial-dashboard 模板改造
+
+[theme]
+base = "dark"
+primaryColor = "#E64545"             # 同花顺红（主按钮/链接/选中态）
+backgroundColor = "#0E1114"          # 终端深底
+secondaryBackgroundColor = "#171C21" # 卡片/控件底
+codeBackgroundColor = "#171C21"
+textColor = "#E8EAED"
+linkColor = "#E64545"
+borderColor = "#2A3138"
+codeTextColor = "#CBD5E1"
+showWidgetBorder = true
+showSidebarBorder = true
+baseRadius = "6px"
+buttonRadius = "6px"
+
+font = "sans-serif"
+baseFontSize = 14
+baseFontWeight = 400
+headingFontSizes = ["28px", "22px", "18px", "16px", "14px", "12px"]
+headingFontWeights = [700, 600, 600, 600, 500, 500]
+linkUnderline = false
+
+# 语义色（中国证券习惯：红涨绿跌，代码中按此语义使用）
+redColor = "#FF5B5B"        # 涨
+greenColor = "#00C08B"      # 跌
+yellowColor = "#F0B90B"     # 均价线/警示
+orangeColor = "#FF9F43"
+blueColor = "#4A9EFF"
+violetColor = "#B48CFF"
+grayColor = "#8B949E"
+
+chartCategoricalColors = [
+    "#E64545",
+    "#00C08B",
+    "#F0B90B",
+    "#4A9EFF",
+    "#B48CFF",
+    "#FF9F43",
+    "#8B949E",
+    "#5AD8A6",
+]
+
+dataframeBorderColor = "#2A3138"
+dataframeHeaderBackgroundColor = "#171C21"
+
+[theme.sidebar]
+backgroundColor = "#12161A"
+secondaryBackgroundColor = "#1A2026"
+codeBackgroundColor = "#1A2026"
+textColor = "#E8EAED"
+borderColor = "#2A3138"
+primaryColor = "#E64545"
+
+[server]
+headless = true
+runOnSave = true
+
+[browser]
+gatherUsageStats = false

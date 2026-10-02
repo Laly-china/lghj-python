@@ -1,0 +1,18 @@
+# 依赖清单-requirements-prediction.txt
+# 量股化金 · 预测服务（prediction-server, 端口 8001）依赖
+# 安装方式（使用项目 venv，在本目录执行；本机实测清华镜像不通，直接走官方 PyPI）：
+#   "..\..\env\venv-虚拟环境\Scripts\python.exe" -m pip install -r 依赖清单-requirements-prediction.txt
+#
+# 说明：本服务不需要 MySQL/Redis；以下为当前 venv 已验证可用的版本，
+# 实际安装时允许向上兼容的小版本更新。
+
+fastapi>=0.110          # Web 框架（/minute /predict）
+uvicorn>=0.29           # ASGI 服务器（8001 端口）
+pydantic>=2.6           # 请求/响应模型（FastAPI 依赖）
+httpx>=0.27             # HTTP 客户端（备用/自测）
+pandas>=2.0             # 行情数据处理与 CSV 缓存读写
+numpy>=1.26             # 数值计算
+openpyxl>=3.1           # Excel 读写（预测数据导出备用）
+akshare>=1.14           # A 股/指数行情数据采集（分时、日线、交易日历）
+torch>=2.2              # LSTM 模型训练与推理（CPU 版即可）
+pytest>=8.0             # 自测

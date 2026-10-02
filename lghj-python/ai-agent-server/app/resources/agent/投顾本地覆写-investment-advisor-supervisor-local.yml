@@ -1,0 +1,29 @@
+# 智能体装配配置（本地可选覆写：问候语处理实验配置）
+# 复现自原 Java 文件：
+#   ai-agent-scaffoid-feng-app/src/main/resources/agent/investment_advisor_supervisor_local.yml
+# 说明：
+#   1. 原 Java 以 spring.config.import optional 方式导入，存在时会按 Spring 规则覆盖主装配；
+#      该文件会把 agent-workflows 整体替换（Spring 列表覆盖语义），导致 Supervisor 失去 sub-agents，
+#      属于原工程的调试实验配置。本服务默认【不加载】本文件；如需实验可用环境变量
+#      AGENT_CONFIG_LOCAL_ENABLED=true 开启（见 config.py / config_loader.py）。
+#   2. 原 Java 文件内含明文 api-key，出于安全考虑本复现不照抄密钥，改为环境变量占位。
+ai:
+  agent:
+    config:
+      tables:
+        investmentAdvisor:
+          module:
+            ai-api:
+              base-url: https://api.deepseek.com
+              api-key: ${AI_AGENT_API_KEY:}
+              completions-path: /v1/chat/completions
+              embeddings-path: /v1/embeddings
+            chat-model:
+              model: deepseek-chat
+            agent-workflows:
+              - type: supervisor
+                name: InvestmentAdvisorSupervisor
+                instruction: |
+                  如果用户原始问题只是“你好”“您好”“在吗”“你是谁”“你能做什么”等问候、寒暄或能力询问，只做简短自然回应。
+                  这类消息不要调用 PersonalTradeProfileAgent，不要查询模拟交易画像，不要输出投资顾问分析报告。
+                  只有当用户明确提出股票、账户、持仓、交易、风险、组合、行情、买卖或复盘问题时，才进入投资顾问分析流程。

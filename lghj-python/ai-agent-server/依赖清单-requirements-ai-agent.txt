@@ -1,0 +1,14 @@
+# 依赖清单 - requirements-ai-agent.txt
+# 「量股化金」Phase 5：AI 智能体投顾服务（ai-agent-server，端口 8091）
+# 说明：共享 venv（env/venv-虚拟环境）已预装以下依赖并自测通过；本文件用于固化最小依赖集。
+# 安装：python -m pip install -r 依赖清单-requirements-ai-agent.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+httpx
+PyYAML          # 装配 yml 解析（litellm 依赖已带入，显式声明）
+litellm         # LLM 接入：OpenAI 兼容协议调 DeepSeek（deepseek-chat）
+# 以下为共享 venv 既有依赖，本服务未直接使用（保持与主工程一致，不强制安装）：
+# pymysql / sqlalchemy / redis / pyjwt / openpyxl / pandas / numpy / python-multipart / pytest / torch

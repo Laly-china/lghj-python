@@ -1,0 +1,17 @@
+# ===== env/ 隔离环境（数 GB 二进制与虚拟环境，不入库）=====
+# 只保留 env/初始化环境-setup-env.sh 与 env/环境说明-env-readme.md（见下方白名单）
+env/*
+!env/初始化环境-setup-env.sh
+!env/环境说明-env-readme.md
+
+# ===== Python 运行产物 =====
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# ===== 运行日志与临时文件 =====
+*.log
+run-t-*.log
+
+# ===== 预测服务数据缓存（可再采集；体积随股票数增长）=====
+lghj-python/prediction-server/data/cache/
