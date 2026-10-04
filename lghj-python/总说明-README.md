@@ -62,6 +62,31 @@ lghj-python/                     本工程根目录
 
 ## 四、启动方式
 
+### AI 顾问 Key 配置（DEEPSEEK_API_KEY —— 克隆后跑通 AI 投顾的唯一必配项）
+
+AI 能力由 8091 调用 **DeepSeek 的 OpenAI 兼容接口**（模型默认 `deepseek-chat`）实现。
+Key 从 **系统环境变量** 读取（项目内无 .env 文件、代码不落盘，因此不会被 git 提交）；
+8080/8001 不需要 Key。
+
+1. **获取 Key**：注册 [DeepSeek 开放平台](https://platform.deepseek.com) → 「API Keys」页
+   创建，得到 `sk-...` 形式的 Key（账户需有余额或免费额度）。
+2. **写入环境变量**（三选一）：
+   - Windows 永久（推荐）：`setx DEEPSEEK_API_KEY "sk-你的Key"`（对新开的终端生效），
+     或「系统设置 → 高级系统设置 → 环境变量 → 用户变量」新建；
+   - Windows 仅当前终端：PowerShell `$env:DEEPSEEK_API_KEY="sk-你的Key"`，
+     并在**同一终端**里启动 8091（子进程继承父终端环境）；
+   - macOS / Linux：`export DEEPSEEK_API_KEY="sk-你的Key"`（写进 `~/.zshrc` / `~/.bashrc` 持久化）。
+   - 兼容回落：也支持原工程变量名 `AI_AGENT_API_KEY`（`DEEPSEEK_API_KEY` 优先）。
+3. **重启 8091**：Key 是服务启动时的快照，改完环境变量必须**重启 8091** 才生效
+   （已运行的进程不会热加载）。
+4. **自检**：登录前端（admin/123456 或注册）向 AI 投顾提问一句即验证；Key 未配置/无效时
+   8091 日志出现 `llm completion failed`（DeepSeek 返回 401），前端表现为回答失败。
+5. **换模型/供应商**（可选）：`AI_AGENT_MODEL`（如 `deepseek-reasoner`）、
+   `AI_AGENT_BASE_URL`（任何 OpenAI 兼容接口），均为环境变量，同样重启生效。
+
+> 内部令牌 `LGHJ_INTERNAL_API_TOKEN`（8091 调 8080 内部接口用）：**双方默认留空 = 不校验**，
+> 克隆后不配置也能跑；如需启用，两个服务的该变量保持一致即可。
+
 **一键启动（推荐）**：双击 `启动三服务-run-all-services.bat`（三个命令行窗口分别运行三服务，
 含 `LGHJ_INTERNAL_API_TOKEN` 环境变量；停止用 `停止三服务-stop-all-services.bat`）。
 
