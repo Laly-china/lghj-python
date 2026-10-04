@@ -15,3 +15,6 @@ run-t-*.log
 
 # ===== 预测服务数据缓存（可再采集；体积随股票数增长）=====
 lghj-python/prediction-server/data/cache/
+
+# ===== NiceGUI 运行时会话存储 =====
+.nicegui/

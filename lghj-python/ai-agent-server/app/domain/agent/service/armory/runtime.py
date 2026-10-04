@@ -13,12 +13,17 @@
 - Event.stringify_content() 对齐 ADK 语义：拼接事件内容中所有 text part。
 - supervisor 编排对齐 ADK AutoFlow：父智能体通过 transfer_to_agent 工具把
   控制权转交给直接子智能体，子智能体输出作为工具结果回传父智能体继续决策。
+
+本工程扩展（原 Java 无）：会话内记录执行轨迹 trace（run_start / llm_call /
+transfer / tool / agent_text 五种事件），供 Agent 流程可视化接口查询；
+打点只做记录，不影响原有对话行为。
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -90,6 +95,50 @@ class Session:
     messages: list[dict[str, Any]] = field(default_factory=list)
     # 会话状态：output_key -> 文本（对应 ADK session.state）
     state: dict[str, str] = field(default_factory=dict)
+    # 执行轨迹（本工程扩展）：按发生顺序追加的事件列表，随会话内存存续
+    trace: list[dict[str, Any]] = field(default_factory=list)
+
+
+# ====================== 执行轨迹打点（本工程扩展：Agent 流程可视化） ======================
+
+# 轨迹文本/结果摘要的截断长度
+_TRACE_TEXT_CLIP = 120
+_TRACE_RESULT_CLIP = 200
+
+
+def _clip_text(text: str, limit: int) -> str:
+    """文本截断（超长以省略号结尾，防止超长 payload 撑爆前端）。"""
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _summarize_payload(payload: Any) -> str:
+    """工具返回值转摘要文本：str 原样，对象 JSON 化，再截断。"""
+    if payload is None:
+        return ""
+    text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False, default=str)
+    return _clip_text(text, _TRACE_RESULT_CLIP)
+
+
+def _append_trace(
+    session: Session,
+    event_type: str,
+    agent: str,
+    name: str | None = None,
+    args: Any = None,
+    result: Any = None,
+    duration_ms: int | None = None,
+) -> None:
+    """向会话追加一条执行轨迹事件（camelCase JSON 字段，供 /api/v1/trace 直接返回）。"""
+    session.trace.append({
+        "seq": len(session.trace) + 1,
+        "ts": round(time.time(), 3),
+        "type": event_type,
+        "agent": agent,
+        "name": name,
+        "args": args,
+        "result": result,
+        "durationMs": duration_ms,
+    })
 
 
 class InMemorySessionService:
@@ -233,6 +282,8 @@ class InMemoryRunner:
         session = self.session_service.get_or_create(self.app_name, user_id, session_id)
         user_text = content.stringify()
         session.messages.append({"role": "user", "content": user_text})
+        # 轨迹：本次提问的边界标记（可视化前端据此切分"本次运行"的片段）
+        _append_trace(session, "run_start", self.agent.name, name=_clip_text(user_text or "", 100))
         yield from self._run_agent(self.agent, session, depth=0)
 
     # ---- 内部编排 ----
@@ -268,9 +319,17 @@ class InMemoryRunner:
             messages = self._build_messages(agent, session)
             # 有直接子智能体时挂载 transfer_to_agent（对齐 ADK sub_agents 自动转交能力）
             extra_tools = [transfer_tool().to_openai_schema()] if agent.sub_agents else None
+            started_at = time.perf_counter()
             assistant_msg = agent.model.chat(messages, extra_tools)
+            llm_duration_ms = int((time.perf_counter() - started_at) * 1000)
 
             calls = _extract_tool_calls(assistant_msg)
+            # 轨迹：本轮 LLM 决策（决定调用哪些工具 / 直接输出文本）及耗时
+            _append_trace(
+                session, "llm_call", agent.name,
+                result=("调用工具: " + ", ".join(c["name"] for c in calls)) if calls else "输出文本",
+                duration_ms=llm_duration_ms,
+            )
             session.messages.append(assistant_msg)
 
             if not calls:
@@ -278,29 +337,22 @@ class InMemoryRunner:
                 if text:
                     if agent.output_key:
                         session.state[agent.output_key] = text
+                    _append_trace(session, "agent_text", agent.name, result=_clip_text(text, _TRACE_TEXT_CLIP))
                     yield Event(author=agent.name, content=Content(role="model", parts=[Part(text=text)]))
                 return
 
+            # OpenAI 协议要求 assistant(tool_calls) 之后必须紧跟每条 tool_call_id 的应答。
+            # 先落全部应答（转交先占位），再运行子智能体并回填其结论——否则子智能体的
+            # 消息会插在应答之前，DeepSeek 校验报 400（insufficient tool messages）。
+            tool_messages: list[dict[str, Any]] = []
+            transfers: list[tuple[dict[str, Any], int]] = []  # (call, 占位应答下标)
             for call in calls:
                 if call["name"] == TRANSFER_TO_AGENT:
-                    target_name = str(call["arguments"].get("agent_name") or "")
-                    sub = self._find_sub_agent(agent, target_name)
-                    if sub is None:
-                        session.messages.append(_tool_message(call["id"], {
-                            "success": False,
-                            "message": f"子智能体不存在或不是直接子级: {target_name}",
-                        }))
-                        continue
-                    # 递归运行子智能体，事件透出；子智能体最后文本作为工具结果回传父级
-                    last_text = ""
-                    for event in self._run_agent(sub, session, depth + 1):
-                        text = event.stringify_content()
-                        if text:
-                            last_text = text
-                        yield event
-                    session.messages.append(_tool_message(call["id"], last_text or "（子智能体无文本输出）"))
+                    tool_messages.append(_tool_message(call["id"], "（专家处理中…）"))
+                    transfers.append((call, len(session.messages) + len(tool_messages) - 1))
                 else:
                     tool = agent.model.find_tool(call["name"])
+                    tool_started_at = time.perf_counter()
                     if tool is None or tool.handler is None:
                         payload: Any = {"success": False, "message": f"未注册的工具: {call['name']}"}
                     else:
@@ -309,7 +361,35 @@ class InMemoryRunner:
                         except Exception as exc:  # noqa: BLE001 工具异常降级为失败结果，避免中断对话
                             logger.warning("tool %s execute failed", call["name"], exc_info=True)
                             payload = {"success": False, "message": f"工具执行失败: {exc}"}
-                    session.messages.append(_tool_message(call["id"], payload))
+                    # 轨迹：一次完整工具调用（入参原样 + 结果摘要 + 耗时）
+                    _append_trace(
+                        session, "tool", agent.name, name=call["name"],
+                        args=call["arguments"], result=_summarize_payload(payload),
+                        duration_ms=int((time.perf_counter() - tool_started_at) * 1000),
+                    )
+                    tool_messages.append(_tool_message(call["id"], payload))
+            session.messages.extend(tool_messages)
+
+            for call, placeholder_idx in transfers:
+                target_name = str(call["arguments"].get("agent_name") or "")
+                # 轨迹：Supervisor 把控制权转交给目标专家
+                _append_trace(session, "transfer", agent.name, name=target_name)
+                sub = self._find_sub_agent(agent, target_name)
+                if sub is None:
+                    session.messages[placeholder_idx]["content"] = json.dumps(
+                        {"success": False, "message": f"子智能体不存在或不是直接子级: {target_name}"},
+                        ensure_ascii=False,
+                    )
+                    continue
+                # 递归运行子智能体（此时父级应答已齐全，子智能体请求合法），事件透出；
+                # 子智能体最后文本回填到占位应答，作为工具结果供父级下一轮决策
+                last_text = ""
+                for event in self._run_agent(sub, session, depth + 1):
+                    text = event.stringify_content()
+                    if text:
+                        last_text = text
+                    yield event
+                session.messages[placeholder_idx]["content"] = last_text or "（子智能体无文本输出）"
             # 继续下一轮：让当前智能体基于工具结果继续决策或输出最终答复
         logger.warning("agent %s reached max tool rounds", agent.name)
 

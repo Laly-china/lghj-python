@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.api.dto import (
@@ -167,3 +167,166 @@ def chat_stream(request: Request, dto: ChatRequestDTO) -> Response[ChatResponseD
             "X-Accel-Buffering": "no",  # nginx 场景关闭缓冲，保证流式
         },
     )
+
+
+# ====================== 扩展接口：Agent 流程可视化（本工程扩展，原 Java 无） ======================
+
+
+@router.get("/trace", response_model=Response[list[dict]])
+def query_trace(request: Request, agentId: str, userId: str, sessionId: str) -> Response[list[dict]]:
+    """查询会话执行轨迹（扩展接口）。
+
+    data 为事件列表（按发生顺序）：
+        {seq, ts, type, agent, name, args, result, durationMs}
+    type 取值：run_start（提问边界）/ llm_call（一轮模型决策）/ transfer（Supervisor 转交）
+    / tool（本地工具调用，args=入参 result=摘要）/ agent_text（文本产出）。
+    会话不存在（服务重启后）返回空列表。
+    """
+    try:
+        events = _get_chat_service(request).get_trace(agentId, userId, sessionId)
+        return Response.build(ResponseCode.SUCCESS.value, ResponseCode.SUCCESS.info, events)
+    except AppException as exc:
+        logger.error("query trace failed: %s", exc)
+        return Response.build(exc.code, exc.info)
+    except Exception:  # noqa: BLE001
+        logger.error("query trace failed", exc_info=True)
+        return Response.build(ResponseCode.UN_ERROR.value, ResponseCode.UN_ERROR.info)
+
+
+@router.get("/agent_team", response_model=Response[dict])
+def query_agent_team(request: Request, agentId: str) -> Response[dict]:
+    """查询智能体团队结构（扩展接口）：{agentId, supervisor, experts, tools}。
+
+    supervisor/experts 的 name 与 description 来自装配 yml（管家的职能说明数据源）。
+    """
+    try:
+        team = _get_chat_service(request).get_team(agentId)
+        return Response.build(ResponseCode.SUCCESS.value, ResponseCode.SUCCESS.info, team)
+    except AppException as exc:
+        logger.error("query agent team failed: %s", exc)
+        return Response.build(exc.code, exc.info)
+    except Exception:  # noqa: BLE001
+        logger.error("query agent team failed", exc_info=True)
+        return Response.build(ResponseCode.UN_ERROR.value, ResponseCode.UN_ERROR.info)
+
+
+# ====================== 扩展接口：历史会话（MySQL 持久化，原 Java 无） ======================
+
+
+@router.get("/history_list", response_model=Response[list[dict]])
+def history_list(request: Request, userId: str, limit: int = 50) -> Response[list[dict]]:
+    """用户历史会话列表（按最近活跃倒序）：[{sessionId, agentId, title, updateTime}]。"""
+    try:
+        from app.infrastructure import chat_store
+
+        return Response.build(
+            ResponseCode.SUCCESS.value, ResponseCode.SUCCESS.info,
+            chat_store.list_sessions(userId, limit),
+        )
+    except Exception:  # noqa: BLE001 存储不可用降级为空列表
+        logger.error("history list failed", exc_info=True)
+        return Response.build(ResponseCode.SUCCESS.value, ResponseCode.SUCCESS.info, [])
+
+
+@router.get("/history_messages", response_model=Response[list[dict]])
+def history_messages(request: Request, sessionId: str) -> Response[list[dict]]:
+    """历史会话消息（正序）：[{role, content, createTime}]，assistant 附 trace。"""
+    try:
+        from app.infrastructure import chat_store
+
+        return Response.build(
+            ResponseCode.SUCCESS.value, ResponseCode.SUCCESS.info,
+            chat_store.get_messages(sessionId),
+        )
+    except Exception:  # noqa: BLE001
+        logger.error("history messages failed", exc_info=True)
+        return Response.build(ResponseCode.SUCCESS.value, ResponseCode.SUCCESS.info, [])
+
+
+@router.delete("/history_session", response_model=Response[dict])
+def delete_history_session(request: Request, sessionId: str, userId: str) -> Response[dict]:
+    """删除历史会话（按归属校验，物理删除消息与会话行）。"""
+    try:
+        from app.infrastructure import chat_store
+
+        deleted = chat_store.delete_session(sessionId, userId)
+        return Response.build(
+            ResponseCode.SUCCESS.value, ResponseCode.SUCCESS.info,
+            {"deleted": deleted},
+        )
+    except Exception:  # noqa: BLE001
+        logger.error("history delete failed", exc_info=True)
+        return Response.build(ResponseCode.UN_ERROR.value, ResponseCode.UN_ERROR.info)
+
+
+# ====================== 扩展接口：个人知识库（MySQL 持久化，原 Java 无） ======================
+
+# 单文件大小上限（字节）：纯文本演示场景
+_KB_UPLOAD_MAX_BYTES = 512 * 1024
+# 允许的扩展名（纯文本）
+_KB_ALLOWED_SUFFIXES = (".txt", ".md")
+
+
+@router.post("/kb_upload", response_model=Response[dict])
+async def kb_upload(
+    request: Request,
+    userId: str = Form(...),
+    file: UploadFile = File(...),
+) -> Response[dict]:
+    """上传纯文本知识库文档（txt/md，≤512KB），落库后可被 queryKnowledgeBase 检索。"""
+    try:
+        from app.infrastructure import chat_store
+
+        filename = file.filename or "未命名.txt"
+        if not filename.lower().endswith(_KB_ALLOWED_SUFFIXES):
+            return Response.build(ResponseCode.ILLEGAL_PARAMETER.value,
+                                  "仅支持 txt / md 纯文本文档")
+        raw = await file.read()
+        if len(raw) > _KB_UPLOAD_MAX_BYTES:
+            return Response.build(ResponseCode.ILLEGAL_PARAMETER.value,
+                                  "文件过大（上限 512KB）")
+        # 优先 UTF-8，失败回落 GBK（Windows 导出文件常见）
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            content = raw.decode("gbk", errors="replace")
+        title = filename.rsplit(".", 1)[0] or filename
+        doc_id = chat_store.add_kb_doc(userId, title, filename, content)
+        return Response.build(
+            ResponseCode.SUCCESS.value, ResponseCode.SUCCESS.info,
+            {"docId": doc_id, "title": title, "charCount": len(content)},
+        )
+    except Exception:  # noqa: BLE001
+        logger.error("kb upload failed", exc_info=True)
+        return Response.build(ResponseCode.UN_ERROR.value, ResponseCode.UN_ERROR.info)
+
+
+@router.get("/kb_list", response_model=Response[list[dict]])
+def kb_list(request: Request, userId: str) -> Response[list[dict]]:
+    """用户知识库文档列表：[{id, title, charCount, createTime}]。"""
+    try:
+        from app.infrastructure import chat_store
+
+        return Response.build(
+            ResponseCode.SUCCESS.value, ResponseCode.SUCCESS.info,
+            chat_store.list_kb_docs(userId),
+        )
+    except Exception:  # noqa: BLE001
+        logger.error("kb list failed", exc_info=True)
+        return Response.build(ResponseCode.SUCCESS.value, ResponseCode.SUCCESS.info, [])
+
+
+@router.delete("/kb_doc", response_model=Response[dict])
+def kb_delete(request: Request, docId: int, userId: str) -> Response[dict]:
+    """删除知识库文档（逻辑删除，按归属校验）。"""
+    try:
+        from app.infrastructure import chat_store
+
+        deleted = chat_store.delete_kb_doc(docId, userId)
+        return Response.build(
+            ResponseCode.SUCCESS.value, ResponseCode.SUCCESS.info,
+            {"deleted": deleted},
+        )
+    except Exception:  # noqa: BLE001
+        logger.error("kb delete failed", exc_info=True)
+        return Response.build(ResponseCode.UN_ERROR.value, ResponseCode.UN_ERROR.info)

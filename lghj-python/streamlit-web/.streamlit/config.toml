@@ -1,16 +1,16 @@
-# 同花顺风格主题 —— 参考 THS PC 行情终端：深色底 + 红色主色调 + 涨红跌绿
-# 基于 streamlit financial-dashboard 模板改造
+# 同花顺风格主题（浅色版）—— 白底 + 红色主色调 + 涨红跌绿
+# 基于 streamlit financial-dashboard 模板改造；语义色在白底上取加深变体保证对比度
 
 [theme]
-base = "dark"
+base = "light"
 primaryColor = "#E64545"             # 同花顺红（主按钮/链接/选中态）
-backgroundColor = "#0E1114"          # 终端深底
-secondaryBackgroundColor = "#171C21" # 卡片/控件底
-codeBackgroundColor = "#171C21"
-textColor = "#E8EAED"
+backgroundColor = "#FFFFFF"          # 纯白底
+secondaryBackgroundColor = "#F5F6F8" # 卡片/控件底（浅灰）
+codeBackgroundColor = "#F0F1F3"
+textColor = "#1F2328"
 linkColor = "#E64545"
-borderColor = "#2A3138"
-codeTextColor = "#CBD5E1"
+borderColor = "#D9DDE3"
+codeTextColor = "#4A5560"
 showWidgetBorder = true
 showSidebarBorder = true
 baseRadius = "6px"
@@ -23,35 +23,35 @@ headingFontSizes = ["28px", "22px", "18px", "16px", "14px", "12px"]
 headingFontWeights = [700, 600, 600, 600, 500, 500]
 linkUnderline = false
 
-# 语义色（中国证券习惯：红涨绿跌，代码中按此语义使用）
-redColor = "#FF5B5B"        # 涨
-greenColor = "#00C08B"      # 跌
-yellowColor = "#F0B90B"     # 均价线/警示
-orangeColor = "#FF9F43"
-blueColor = "#4A9EFF"
-violetColor = "#B48CFF"
-grayColor = "#8B949E"
+# 语义色（中国证券习惯：红涨绿跌，白底取加深变体）
+redColor = "#E64545"        # 涨
+greenColor = "#00A67D"      # 跌
+yellowColor = "#D48806"     # 均价线/警示
+orangeColor = "#E8590C"
+blueColor = "#2563EB"
+violetColor = "#7C3AED"
+grayColor = "#6B7280"
 
 chartCategoricalColors = [
     "#E64545",
-    "#00C08B",
-    "#F0B90B",
-    "#4A9EFF",
-    "#B48CFF",
-    "#FF9F43",
-    "#8B949E",
-    "#5AD8A6",
+    "#00A67D",
+    "#D48806",
+    "#2563EB",
+    "#7C3AED",
+    "#E8590C",
+    "#6B7280",
+    "#10B981",
 ]
 
-dataframeBorderColor = "#2A3138"
-dataframeHeaderBackgroundColor = "#171C21"
+dataframeBorderColor = "#D9DDE3"
+dataframeHeaderBackgroundColor = "#F0F1F3"
 
 [theme.sidebar]
-backgroundColor = "#12161A"
-secondaryBackgroundColor = "#1A2026"
-codeBackgroundColor = "#1A2026"
-textColor = "#E8EAED"
-borderColor = "#2A3138"
+backgroundColor = "#F7F8FA"
+secondaryBackgroundColor = "#EEF0F3"
+codeBackgroundColor = "#EEF0F3"
+textColor = "#1F2328"
+borderColor = "#D9DDE3"
 primaryColor = "#E64545"
 
 [server]

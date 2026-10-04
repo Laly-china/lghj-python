@@ -76,11 +76,13 @@ def agent_api(
     *,
     json_body: dict[str, Any] | None = None,
     params: dict[str, Any] | None = None,
+    timeout: httpx.Timeout | float | None = None,
 ) -> tuple[bool, Any, str]:
-    """调用 8091，返回 (ok, data, info)。"""
+    """调用 8091，返回 (ok, data, info)；timeout 为 None 时用共享客户端默认 20s。"""
     try:
         r = http().request(
-            method, AGENT + path, params=params, json=json_body, headers=_headers()
+            method, AGENT + path, params=params, json=json_body, headers=_headers(),
+            timeout=timeout,
         )
     except httpx.HTTPError as e:
         return False, None, f"智能体服务连接失败（{e.__class__.__name__}），请确认 8091 已启动"
@@ -382,6 +384,7 @@ def agent_session(agent_id: str, user_id: int) -> str | None:
 
 
 def agent_chat(agent_id: str, user_id: int, session_id: str, message: str) -> tuple[bool, str]:
+    """阻塞式对话；LLM 含工具往返可达数十秒，读超时放宽到 180s（对齐服务端预算）。"""
     ok, data, info = agent_api(
         "POST",
         "/api/v1/chat",
@@ -391,10 +394,75 @@ def agent_chat(agent_id: str, user_id: int, session_id: str, message: str) -> tu
             "sessionId": session_id,
             "message": message,
         },
+        timeout=httpx.Timeout(180.0, connect=10.0),
     )
     if ok and isinstance(data, dict):
         return True, data.get("content") or ""
     return False, info or "智能体暂不可用"
+
+
+def agent_trace(agent_id: str, user_id: int | str, session_id: str) -> list[dict]:
+    """会话执行轨迹（8091 扩展接口）：[{seq,ts,type,agent,name,args,result,durationMs}, ...]。"""
+    ok, data, _i = agent_api(
+        "GET", "/api/v1/trace",
+        params={"agentId": agent_id, "userId": str(user_id), "sessionId": session_id},
+    )
+    return data or []
+
+
+def agent_team(agent_id: str) -> dict | None:
+    """智能体团队结构（8091 扩展接口）：{supervisor, experts, tools}；不可用时 None（前端降级隐藏）。"""
+    ok, data, _i = agent_api("GET", "/api/v1/agent_team", params={"agentId": agent_id})
+    return data if ok else None
+
+
+# ---------------- AI 投顾扩展：历史会话（MySQL 持久化，原 Java 无） ----------------
+
+def agent_history_list(user_id: int | str) -> list[dict]:
+    """历史会话列表 [{sessionId, agentId, title, updateTime}]（最近活跃倒序）。"""
+    ok, data, _i = agent_api("GET", "/api/v1/history_list", params={"userId": str(user_id)})
+    return data or []
+
+
+def agent_history_messages(session_id: str) -> list[dict]:
+    """历史会话消息 [{role, content, createTime}]（assistant 附 trace）。"""
+    ok, data, _i = agent_api("GET", "/api/v1/history_messages", params={"sessionId": session_id})
+    return data or []
+
+
+def agent_history_delete(session_id: str, user_id: int | str) -> bool:
+    """删除历史会话（按归属校验）。"""
+    ok, _d, _i = agent_api("DELETE", "/api/v1/history_session",
+                           params={"sessionId": session_id, "userId": str(user_id)})
+    return ok
+
+
+# ---------------- AI 投顾扩展：个人知识库（MySQL 持久化，原 Java 无） ----------------
+
+def agent_kb_list(user_id: int | str) -> list[dict]:
+    """知识库文档列表 [{id, title, charCount, createTime}]。"""
+    ok, data, _i = agent_api("GET", "/api/v1/kb_list", params={"userId": str(user_id)})
+    return data or []
+
+
+def agent_kb_upload(user_id: int | str, filename: str, payload: bytes) -> tuple[bool, str]:
+    """上传纯文本文档（txt/md ≤512KB）。"""
+    try:
+        r = http().post(f"{AGENT}/api/v1/kb_upload", data={"userId": str(user_id)},
+                        files={"file": (filename, payload)}, timeout=20)
+        body = r.json()
+    except httpx.HTTPError as e:
+        return False, f"知识库上传失败（{e.__class__.__name__}），请确认 8091 已启动"
+    if body.get("code") == "0000" and isinstance(body.get("data"), dict):
+        return True, f"已收录《{body['data'].get('title', filename)}》"
+    return False, body.get("info") or "上传失败"
+
+
+def agent_kb_delete(doc_id: int, user_id: int | str) -> bool:
+    """删除知识库文档（逻辑删除，按归属校验）。"""
+    ok, _d, _i = agent_api("DELETE", "/api/v1/kb_doc",
+                           params={"docId": doc_id, "userId": str(user_id)})
+    return ok
 
 
 # ---------------- 管理端（userType=3） ----------------

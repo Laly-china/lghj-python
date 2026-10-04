@@ -8,17 +8,20 @@
 
 from __future__ import annotations
 
+import html as html_lib
+import json
+
 import pandas as pd
 import streamlit as st
 
-# 涨红跌绿（深色背景下的高可读色）
-UP = "#FF5B5B"        # 涨
-DOWN = "#00C08B"      # 跌
-FLAT = "#8B949E"      # 平
-AVG_LINE = "#F0B90B"  # 分时均价线（THS 黄）
-TEXT = "#E8EAED"
-GRID = "#2A3138"
-AXIS_LABEL = "#8B949E"
+# 涨红跌绿（浅色主题：白底上取加深变体保证对比度）
+UP = "#E64545"        # 涨（同花顺红）
+DOWN = "#00A67D"      # 跌
+FLAT = "#6B7280"      # 平
+AVG_LINE = "#D48806"  # 分时均价线（THS 黄·加深）
+TEXT = "#1F2328"
+GRID = "#E2E5E9"
+AXIS_LABEL = "#6B7280"
 
 
 def require_login() -> None:
@@ -111,9 +114,9 @@ def _ma(series: pd.Series, n: int) -> list[float | None]:
 
 def _base_axis(extra: dict | None = None) -> dict:
     axis = {
-        "axisLine": {"lineStyle": {"color": GRID}},
+        "axisLine": {"lineStyle": {"color": "#D0D4D9"}},
         "axisLabel": {"color": AXIS_LABEL, "fontSize": 11},
-        "splitLine": {"lineStyle": {"color": "#1C2228"}},
+        "splitLine": {"lineStyle": {"color": "#ECEDEF"}},
     }
     if extra:
         axis.update(extra)
@@ -123,8 +126,8 @@ def _base_axis(extra: dict | None = None) -> dict:
 def _tooltip() -> dict:
     return {
         "trigger": "axis",
-        "axisPointer": {"type": "cross", "label": {"backgroundColor": "#1A2026"}},
-        "backgroundColor": "#171C21",
+        "axisPointer": {"type": "cross", "label": {"backgroundColor": "#EEF0F2"}},
+        "backgroundColor": "#FFFFFF",
         "borderColor": GRID,
         "textStyle": {"color": TEXT, "fontSize": 12},
     }
@@ -178,9 +181,9 @@ def kline_option(df: pd.DataFrame) -> dict:
                 "yAxisIndex": 0,
                 "itemStyle": {"color": UP, "color0": DOWN, "borderColor": UP, "borderColor0": DOWN},
             },
-            {"name": "MA5", "type": "line", "data": ma5, "showSymbol": False, "lineStyle": {"width": 1, "color": "#F0B90B"}},
-            {"name": "MA10", "type": "line", "data": ma10, "showSymbol": False, "lineStyle": {"width": 1, "color": "#4A9EFF"}},
-            {"name": "MA20", "type": "line", "data": ma20, "showSymbol": False, "lineStyle": {"width": 1, "color": "#B48CFF"}},
+            {"name": "MA5", "type": "line", "data": ma5, "showSymbol": False, "lineStyle": {"width": 1, "color": "#D48806"}},
+            {"name": "MA10", "type": "line", "data": ma10, "showSymbol": False, "lineStyle": {"width": 1, "color": "#2563EB"}},
+            {"name": "MA20", "type": "line", "data": ma20, "showSymbol": False, "lineStyle": {"width": 1, "color": "#7C3AED"}},
             {"name": "成交量", "type": "bar", "data": vol_colors, "xAxisIndex": 1, "yAxisIndex": 1},
         ],
     }
@@ -279,3 +282,112 @@ def api_get_quote_cached(market: str, code: str) -> dict | None:
     from api import get_quote
 
     return get_quote(market, code)
+
+
+# ====================== Agent 管家团队可视化（管家命名 + 运行状态推导） ======================
+
+# agent 英文名 -> (卡片名, 图标, 一句话职能)；
+# 命名参考腾讯 Marvis「职能+管家」四字风格，职能与装配 yml 的专家分工一一对应
+AGENT_CARDS: dict[str, tuple[str, str, str]] = {
+    "InvestmentAdvisorSupervisor": ("队长", "👑", "拆解问题、分派专家、汇总结论"),
+    "MarketAnalysisAgent": ("行情管家", "🌐", "宏观·行业·基本面与消息面"),
+    "QuantTechnicalAgent": ("技术管家", "📈", "量价趋势·支撑阻力·波动分析"),
+    "PersonalTradeProfileAgent": ("持仓管家", "💼", "我的持仓与交易画像"),
+    "RiskAssessmentAgent": ("风控管家", "🛡️", "风险识别与仓位风控边界"),
+    "PortfolioAdviceAgent": ("组合管家", "🧩", "配置建议·仓位纪律·观察清单"),
+    "ComplianceDisclosureAgent": ("合规管家", "⚖️", "合规审查与免责声明"),
+}
+
+
+def agent_card_name(agent_name: str) -> str:
+    """agent 英文名 -> 管家卡片名（未登记的 agent 原样返回）。"""
+    return AGENT_CARDS.get(agent_name, (agent_name, "🤖", ""))[0]
+
+
+def agent_card(agent_id: str) -> tuple[str, str, str]:
+    """agentId 或英文名 -> (卡片名, 图标, 职能)；investment-advisor 映射为「队长」。"""
+    if agent_id == "investment-advisor":
+        agent_id = "InvestmentAdvisorSupervisor"
+    return AGENT_CARDS.get(agent_id, (agent_id, "🤖", ""))
+
+
+# ====================== Agent 思考芯片流（ZCode 式：实时流出 / 回放共用） ======================
+
+def render_thinking_chips(events: list[dict]) -> None:
+    """把轨迹事件渲染为纵向决策芯片：🧠决策 / 🔧工具(可展开看入参结果) / ➡️转交 / 📤输出。
+
+    run_start 不渲染；生成中与完成后的回放使用同一渲染，保证视觉一致。
+    """
+    for e in events:
+        etype = e.get("type")
+        if etype == "run_start":
+            continue
+        dur = f" · {e.get('durationMs')}ms" if e.get("durationMs") is not None else ""
+        who = agent_card(str(e.get("agent") or ""))[0]
+        if etype == "llm_call":
+            st.markdown(
+                f"<span style='color:#2563EB;font-size:12px'>🧠 {html_lib.escape(who)} 决策{dur} · "
+                f"{html_lib.escape(str(e.get('result') or ''))}</span>",
+                unsafe_allow_html=True,
+            )
+        elif etype == "transfer":
+            target = agent_card(str(e.get("name") or ""))[0]
+            st.markdown(
+                f"<span style='color:#D97706;font-size:12px'>➡️ 转交 {html_lib.escape(target)}</span>",
+                unsafe_allow_html=True,
+            )
+        elif etype == "tool":
+            args_text = json.dumps(e.get("args") or {}, ensure_ascii=False)
+            result_text = str(e.get("result") or "")
+            with st.expander(f"🔧 {html_lib.escape(str(e.get('name') or ''))} · {html_lib.escape(who)}{dur}", expanded=False):
+                st.markdown(
+                    f"<div style='color:#57606A;font-size:11px;line-height:1.7'>入参　"
+                    f"<code style='color:#6B7280;word-break:break-all'>{html_lib.escape(args_text)}</code><br>"
+                    f"结果　{html_lib.escape(result_text[:300])}</div>",
+                    unsafe_allow_html=True,
+                )
+        elif etype == "agent_text":
+            st.markdown(
+                f"<span style='color:#00A67D;font-size:12px'>📤 {html_lib.escape(who)} 输出结论</span>",
+                unsafe_allow_html=True,
+            )
+
+
+def agent_thinking_stream(events: list[dict], live: bool = False) -> None:
+    """思考过程折叠块：live=生成中（默认展开 + 尾部进行中提示），否则收起态回放。"""
+    steps = [e for e in events if e.get("type") != "run_start"]
+    if live:
+        with st.expander(f"深度思考中… · 已 {len(steps)} 步", expanded=True):
+            render_thinking_chips(events)
+            st.markdown(
+                "<span style='color:#D97706;font-size:12px'>● 思考继续中…</span>",
+                unsafe_allow_html=True,
+            )
+    else:
+        with st.expander(f"已深度思考 · {len(steps)} 步", expanded=False):
+            render_thinking_chips(events)
+
+
+def slice_current_run(events: list[dict]) -> list[dict]:
+    """切出最后一个 run_start 之后的轨迹片段（即最近一次提问的执行过程）。"""
+    last = -1
+    for i, e in enumerate(events):
+        if e.get("type") == "run_start":
+            last = i
+    return events[last:] if last >= 0 else list(events)
+
+
+def agent_team_status(events: list[dict], running: bool) -> dict[str, str]:
+    """由轨迹片段推导各 agent 状态。
+
+    有事件的 agent = done；对话仍在进行时，最后一条事件的 agent = running（正在打点者）。
+    """
+    status: dict[str, str] = {}
+    for e in events:
+        if e.get("type") != "run_start" and e.get("agent"):
+            status[e["agent"]] = "done"
+    if running and events:
+        last_agent = events[-1].get("agent")
+        if last_agent:
+            status[last_agent] = "running"
+    return status

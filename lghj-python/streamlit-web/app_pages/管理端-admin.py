@@ -102,7 +102,7 @@ if tab_stock.open:
             ]
         )
         styled = df.style.map(
-            lambda v: "color: #E8EAED", subset=["symbol", "name"]
+            lambda v: "color: #1F2328", subset=["symbol", "name"]
         )
         st.dataframe(
             styled, hide_index=True, width="stretch",
@@ -159,7 +159,7 @@ if tab_blog.open:
                 m = st.container(horizontal=True, horizontal_alignment="left")
                 st.markdown(
                     f"**{b.get('title', '')}**　"
-                    f"<span style='color:#8B949E;font-size:12px'>作者ID {b.get('userId')} · "
+                    f"<span style='color:#6B7280;font-size:12px'>作者ID {b.get('userId')} · "
                     f"{b.get('createTime', '')}</span>",
                     unsafe_allow_html=True,
                 )

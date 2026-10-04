@@ -30,7 +30,14 @@ lghj-python/                     本工程根目录
 │   ├── .streamlit/config.toml   深色 + THS 红主题（涨红跌绿）
 │   ├── app_pages/               7 个页面（行情/个股/交易/自选/AI投顾/社区/管理端）
 │   └── 启动前端-run-web.bat      一键启动
-└── tests/                       Phase 7 联调自测（pytest 契约测试，68 条用例）
+├── agent-web/                   AI 投顾终端（NiceGUI，端口 8502，参考 Marvis 布局）
+│   ├── 文件清单-file-manifest.md  文件清单/扩展接口依赖说明
+│   ├── main.py                  登录 + 马维斯式左栏（新建对话/管家团队/知识库/历史/账户卡片）
+│   │                              + 对话主区（实时思考芯片 + 右上角工作指示）
+│   ├── api_client.py            8080 登录 / 8091 chat·trace·history·kb 客户端
+│   └── 启动投顾终端-run-agent-web.bat  一键启动
+└── tests/                       Phase 7 联调自测（pytest 契约测试，73 条用例，
+    │                              含 Agent 可视化/历史/知识库扩展接口用例）
     ├── 文件清单-file-manifest.md  测试文件双语说明与运行方式
     ├── API清单-api-inventory.md   前端 7 模块梳理出的全量 API 契约清单（57 项）
     ├── 联调报告-integration-report.md  覆盖率/通过率/bug 清单/端到端结论
@@ -133,7 +140,22 @@ cd lghj-python
 `POST chat`、`POST chat_stream`（文本流）。统一响应体 `Response{code:"0000", info, data}`。
 litellm 走 OpenAI 兼容协议调 DeepSeek（环境变量 `DEEPSEEK_API_KEY`）；工具
 `querySimTradeProfile` / `queryRealtimeMarket` 经 `X-Internal-Token` 调 8080
-`/api/internal/*`。同 userId 的会话幂等复用。
+`/api/internal/*`。同 (agentId, userId) 的会话幂等复用。另含多个**本工程扩展接口**
+（原 Java 无）：`GET /api/v1/trace`（会话执行轨迹：run_start/llm_call/transfer/
+tool/agent_text 五种事件）、`GET /api/v1/agent_team`（团队结构）、历史会话
+`history_list/history_messages/history_session`（MySQL 持久化）、个人知识库
+`kb_upload/kb_list/kb_doc` + 检索工具 `queryKnowledgeBase`；6 个专家智能体注册为
+可独立对话 agent。供 AI 投顾终端 agent-web（8502，马维斯式布局：管家团队侧栏 /
+实时思考可视化 / 历史会话 / 知识库）与 Streamlit 前端的状态灯可视化使用。
+
+### streamlit-web（Streamlit 前端，8501）
+
+同花顺风格交易终端（原 Vue 前端的替代）：行情/K线/分时/预测/新闻、模拟交易、自选、
+社区、管理端，契约与原前端一致。另含**本工程扩展**的马维斯式 AI 投顾体验：侧栏
+「管家团队」（队长+6 专家点击单独对话）/「个人知识库」（上传 txt/md，投顾可检索
+引用）/「历史对话」（MySQL 持久化、可滑动回看续聊）+ 账户卡片固定左下角；AI 投顾
+页发问后实时显示思考过程（右上角"N 位管家工作中"指示 + 管家卡片条状态灯 +
+点击下钻思考面板）。依赖 8091 扩展接口，不可用时自动降级。
 
 ### prediction-server（股价预测服务，Phase 6，端口 8001）
 
@@ -149,4 +171,5 @@ litellm 走 OpenAI 兼容协议调 DeepSeek（环境变量 `DEEPSEEK_API_KEY`）
 详见 `tests/文件清单-file-manifest.md` 与 `tests/联调报告-integration-report.md`：
 68 条 pytest 契约用例覆盖 55/55 可测 API（100%），含跨服务链路（8001 分时→8080、
 8091 工具→8080 内部 API）与真实 LLM 调用；联调修复 2 个服务缺陷（分时取数超时、
-画像接口 Decimal.divide），两轮全量 68/68 通过。
+画像接口 Decimal.divide），两轮全量 68/68 通过。后增 Agent 流程可视化扩展接口
+用例 3 条（/api/v1/agent_team、/api/v1/trace 结构与工具调用记录），现共 71 条。

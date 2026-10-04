@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from threading import Lock
 
 from app.domain.agent.adapter.model.entity import ChatCommandEntity
 from app.domain.agent.adapter.model.valobj import AgentTableVO, AiAgentAutoConfigProperties
@@ -46,9 +45,6 @@ class ChatService:
         self._factory = default_armory_factory
         self._properties = ai_agent_auto_config_properties
         self._sim_trade_profile_port = sim_trade_profile_port
-        # 用户会话缓存：userId -> sessionId（照抄原 Java ConcurrentHashMap 语义）
-        self._user_sessions: dict[str, str] = {}
-        self._user_sessions_lock = Lock()
 
     # ====================== 对外接口：查询AI智能体配置列表 ======================
 
@@ -65,26 +61,23 @@ class ChatService:
     # ====================== 对外接口：创建AI对话会话 ======================
 
     def create_session(self, agent_id: str | None, user_id: str | None) -> str:
-        """创建用户与 AI 的对话会话（同一用户复用同一 sessionId）。
+        """创建用户与 AI 的对话会话（每次调用都新建，配合「新建对话」与历史落库语义）。
 
         原 Java：userSessions.computeIfAbsent(userId, uid -> runner.sessionService()
-            .createSession(appName, uid).blockingGet().id())
+            .createSession(appName, uid).blockingGet().id()) —— 同一用户复用同一会话；
+        本工程扩展历史持久化后改为每次新建：否则多轮「新建对话」都会折进同一
+        历史行（标题永远停在首问、列表看不到新增），新开对话亦无法隔离上下文。
+        会话上下文仍由前端 advisor_session 在单次页面会话内复用。
         """
         register_vo = self._factory.get_ai_agent_register_vo(agent_id or "")
         if register_vo is None:
             # 智能体ID不存在
             raise AppException(ResponseCode.E0001.value, ResponseCode.E0001.info)
 
-        app_name = register_vo.appName
         runner: InMemoryRunner = register_vo.runner
-
-        with self._user_sessions_lock:
-            session_id = self._user_sessions.get(user_id or "")
-            if session_id is None:
-                session = runner.session_service.create_session(app_name, user_id or "")
-                session_id = session.id
-                self._user_sessions[user_id or ""] = session_id
-            return session_id
+        return runner.session_service.create_session(
+            register_vo.appName, user_id or ""
+        ).id
 
     # ====================== 对外接口：处理消息 ======================
 
@@ -95,13 +88,48 @@ class ChatService:
             raise AppException(ResponseCode.E0001.value, ResponseCode.E0001.info)
 
         runner: InMemoryRunner = register_vo.runner
+        trace_start = self._trace_start_len(register_vo, user_id or "", session_id or "")
         user_msg = Content.from_text(self._build_user_context_message(agent_id or "", user_id or "", message or ""))
         events: Iterator[Event] = runner.run_async(user_id or "", session_id or "", user_msg)
 
         outputs: list[str] = []
         for event in events:
             outputs.append(event.stringify_content())
+
+        # 本工程扩展：历史落库（MySQL；失败仅告警不阻断对话）
+        self._persist_turn(register_vo, user_id, session_id, message or "",
+                           "\n".join(outputs), trace_start)
         return outputs
+
+    # ====================== 扩展辅助：轨迹切片与历史落库（原 Java 无） ======================
+
+    def _trace_start_len(self, register_vo, user_id: str, session_id: str) -> int:
+        """运行前的会话轨迹长度（用于切出本轮新增事件）。"""
+        session = register_vo.runner.session_service.get_session(register_vo.appName, user_id, session_id)
+        return len(session.trace) if session is not None else 0
+
+    def _trace_slice(self, register_vo, user_id: str, session_id: str, start: int) -> list[dict]:
+        """切出本轮运行新增的轨迹事件。"""
+        session = register_vo.runner.session_service.get_session(register_vo.appName, user_id, session_id)
+        return list(session.trace[start:]) if session is not None else []
+
+    def _persist_turn(self, register_vo, user_id: str | None, session_id: str | None,
+                      user_text: str, assistant_text: str, trace_start: int) -> None:
+        """一轮对话写入 MySQL 历史（agent_chat_session / agent_chat_message）。"""
+        try:
+            from app.infrastructure import chat_store
+
+            trace = self._trace_slice(register_vo, user_id or "", session_id or "", trace_start)
+            chat_store.record_turn(
+                session_id=session_id or "",
+                agent_id=register_vo.agentId,
+                user_id=user_id or "",
+                user_text=user_text,
+                assistant_text=assistant_text,
+                trace=trace,
+            )
+        except Exception:  # noqa: BLE001 存储不可用时降级为仅内存会话
+            logger.warning("persist chat history failed", exc_info=True)
 
     def handle_message_stream(self, agent_id: str | None, user_id: str | None, session_id: str | None, message: str | None) -> Iterator[Event]:
         """流式处理用户消息，返回事件生成器（对齐原 Java handleMessageStream）。"""
@@ -110,9 +138,20 @@ class ChatService:
             raise AppException(ResponseCode.E0001.value, ResponseCode.E0001.info)
 
         runner: InMemoryRunner = register_vo.runner
+        trace_start = self._trace_start_len(register_vo, user_id or "", session_id or "")
         user_msg = Content.from_text(self._build_user_context_message(agent_id or "", user_id or "", message or ""))
+
+        def _persisting(gen: Iterator[Event]) -> Iterator[Event]:
+            """透传事件流，耗尽后落库历史（对齐阻塞路径的持久化语义）。"""
+            outputs: list[str] = []
+            for event in gen:
+                outputs.append(event.stringify_content())
+                yield event
+            self._persist_turn(register_vo, user_id, session_id, message or "",
+                               "\n".join(outputs), trace_start)
+
         # 直接返回流，不阻塞，前端实时接收
-        return runner.run_async(user_id or "", session_id or "", user_msg)
+        return _persisting(runner.run_async(user_id or "", session_id or "", user_msg))
 
     def handle_message_command(self, command: ChatCommandEntity) -> list[str]:
         """复杂消息处理：文本 + 文件 + 内联数据（对齐原 Java handleMessage(ChatCommandEntity)）。"""
@@ -143,6 +182,52 @@ class ChatService:
             outputs.append(event.stringify_content())
         return outputs
 
+    # ====================== 扩展：执行轨迹与团队结构（Agent 流程可视化，原 Java 无） ======================
+
+    def get_trace(self, agent_id: str | None, user_id: str | None, session_id: str | None) -> list[dict]:
+        """查询会话的执行轨迹事件列表（供前端管家团队状态灯与思考面板消费）。
+
+        - agentId 无效：抛 E0001（与创建会话一致的语义）；
+        - 会话不存在（服务重启后 / 未创建）：返回空列表宽和降级。
+        """
+        register_vo = self._factory.get_ai_agent_register_vo(agent_id or "")
+        if register_vo is None:
+            raise AppException(ResponseCode.E0001.value, ResponseCode.E0001.info)
+
+        runner: InMemoryRunner = register_vo.runner
+        session = runner.session_service.get_session(register_vo.appName, user_id or "", session_id or "")
+        if session is None:
+            return []
+        return list(session.trace)
+
+    def get_team(self, agent_id: str | None) -> dict:
+        """查询智能体团队结构（Supervisor + 专家职能 + 可用工具名）。
+
+        前端管家卡片的单一数据源：专家的 name/description/outputKey 均来自装配 yml。
+        """
+        register_vo = self._factory.get_ai_agent_register_vo(agent_id or "")
+        if register_vo is None:
+            raise AppException(ResponseCode.E0001.value, ResponseCode.E0001.info)
+
+        runner: InMemoryRunner = register_vo.runner
+        supervisor = runner.agent
+        experts = [
+            {
+                "name": sub.name,
+                "description": sub.description or "",
+                "outputKey": getattr(sub, "output_key", None),
+            }
+            for sub in supervisor.sub_agents
+        ]
+        model = getattr(supervisor, "model", None)
+        tools = [t.name for t in model.tools] if model is not None else []
+        return {
+            "agentId": register_vo.agentId,
+            "supervisor": {"name": supervisor.name, "description": supervisor.description or ""},
+            "experts": experts,
+            "tools": tools,
+        }
+
     # ====================== 核心：构建用户上下文消息（自动注入交易画像） ======================
 
     def _build_user_context_message(self, agent_id: str, user_id: str, message: str) -> str:
@@ -159,6 +244,19 @@ class ChatService:
             builder.append(
                 f"\n当前用户模拟交易画像JSON：{profile_json}"
                 "\n请优先基于这份画像分析账户资金、持仓、近期委托、近期成交、交易行为标签和仓位集中度。"
+            )
+
+        # 本工程扩展：用户个人知识库文档清单（全体智能体可见，提示可调用检索工具）
+        try:
+            from app.infrastructure import chat_store
+
+            kb_titles = chat_store.list_kb_titles(user_id, limit=10)
+        except Exception:  # noqa: BLE001 存储不可用时跳过注入
+            kb_titles = []
+        if kb_titles:
+            builder.append(
+                f"\n用户个人知识库文档：{'、'.join(kb_titles)}。"
+                "如需引用其中的内容，请调用 queryKnowledgeBase 工具检索。"
             )
 
         # 添加用户问题

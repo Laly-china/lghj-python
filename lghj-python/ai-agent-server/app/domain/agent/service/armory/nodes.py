@@ -29,6 +29,7 @@ from app.domain.agent.adapter.model.valobj import (
 )
 from app.domain.agent.service.armory.factory import DynamicContext
 from app.domain.agent.service.armory.model_client import LiteLlmClient
+from app.domain.agent.service.matter.local_tools import KNOWLEDGE_BASE_MCP
 from app.domain.agent.service.armory.runtime import (
     ChatModel,
     InMemoryRunner,
@@ -138,6 +139,10 @@ class ChatModelNode(AbstractArmoryNode):
             skill_tool = self._build_skills_tool(tool_skills or {})
             if skill_tool is not None:
                 tools.append(skill_tool)
+
+        # 3. 本工程扩展（原 Java 无）：并入知识库检索工具（yml 未引用，显式追加）
+        if self._local_registry:
+            tools.extend(self._local_registry.get(KNOWLEDGE_BASE_MCP, []))
 
         # 3. 构建 ChatModel（原 Java OpenAiChatModel.builder().openAiApi(openAiApi).defaultOptions(...).build()）
         # API Key：优先 YAML 占位符解析结果；为空时回落 DEEPSEEK_API_KEY / AI_AGENT_API_KEY 环境变量
@@ -403,6 +408,23 @@ class RunnerNode(AbstractArmoryNode):
         )
         # 注册到容器（原 Java registerBean(agentId, AiAgentRegisterVO.class, vo)）
         self._factory.register_ai_agent_register_vo(vo.agentId, vo)
+
+        # 本工程扩展（原 Java 无）：把每个专家 LlmAgent 也注册为可独立对话的
+        # runner（agentId=专家名，各自独立的会话服务），供前端"管家团队"单独对话。
+        # 注意排除 runner 根（table.module.runner.agentName，如 InvestmentAdvisorSupervisor），
+        # 不能用 table.agent.agentName（那是中文显示名"智能投资顾问"）。
+        root_agent_name = table.module.runner.agentName
+        for expert_name, expert_agent in ctx.agentGroup.items():
+            if not expert_name or expert_name == root_agent_name:
+                continue
+            if isinstance(expert_agent, LlmAgent):
+                self._factory.register_ai_agent_register_vo(expert_name, AiAgentRegisterVO(
+                    appName=app_name or "",
+                    agentId=expert_name,
+                    agentName=expert_name,
+                    agentDesc=expert_agent.description or "",
+                    runner=InMemoryRunner(expert_agent, app_name or ""),
+                ))
         return vo
 
     def get(self, command: ArmoryCommandEntity, ctx: DynamicContext) -> AbstractArmoryNode | None:

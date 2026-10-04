@@ -32,7 +32,7 @@ with col_logo:
         <div style="display:flex; justify-content:flex-end; align-items:center; gap:9px">
           <div style="text-align:right; line-height:1.25">
             <div style="font-size:14px; font-weight:700; color:#E64545; letter-spacing:2px">量股化金</div>
-            <div style="font-size:10px; color:#8B949E; letter-spacing:1px">模拟炒股终端</div>
+            <div style="font-size:10px; color:#6B7280; letter-spacing:1px">模拟炒股终端</div>
           </div>
           <div style="
               width:40px; height:40px; border-radius:10px; flex:none;

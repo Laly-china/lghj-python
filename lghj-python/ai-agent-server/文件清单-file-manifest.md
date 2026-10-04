@@ -22,7 +22,14 @@ Java→Python DDD 复现。原 Java 工程：`lghj-web-dist.tar/ai-agent-scaffoi
 | --- | --- | --- |
 | `app/__init__.py` | - | 应用包标识 |
 | `app/main.py` | `-app` 模块 `cn/feng/Application.java` + `config/AiAgentAutoConfig.java` | FastAPI 入口：组装端口/工厂/服务，应用就绪后执行智能体装配（lifespan），挂载 4 个路由，健康检查 `/act/health` |
-| `app/config.py` | `LghjClientProperties.java` + `application-dev.yml` | 配置：端口 8091、lghj.client（LGHJ_BASE_URL/LGHJ_INTERNAL_API_TOKEN/LGHJ_CLIENT_TIMEOUT_SECONDS）、LLM Key（DEEPSEEK_API_KEY 优先，回落 AI_AGENT_API_KEY）、装配文件路径 |
+| `app/config.py` | `LghjClientProperties.java` + `application-dev.yml` | 配置：端口 8091、lghj.client（LGHJ_BASE_URL/LGHJ_INTERNAL_API_TOKEN/LGHJ_CLIENT_TIMEOUT_SECONDS）、LLM Key（DEEPSEEK_API_KEY 优先，回落 AI_AGENT_API_KEY）、装配文件路径；**扩展（原 Java 无）**：MySQL 连接（扩展存储 agent_* 表用） |
+
+## 2b. app/infrastructure/ 扩展存储（本工程新增，原 Java 无）
+
+| 文件 | 对应原 Java | 说明 |
+| --- | --- | --- |
+| `app/infrastructure/database.py` | - | 扩展存储引擎（复用主控 MySQL lghj 库）：懒加载 engine + session_tx 事务上下文 + 启动幂等建表（agent_chat_session / agent_chat_message / agent_kb_doc，DDL 见 sql/智能体扩展表-agent-extension.sql） |
+| `app/infrastructure/chat_store.py` | - | 会话历史 CRUD（record_turn 每轮落库/列表/消息/删除）与个人知识库 CRUD + 关键词检索（段落计分）；DbKbSearchPort 实现 KbSearchPort 供本地工具检索 |
 
 ## 3. app/types/ 类型层（对应 `-types` 模块）
 
@@ -48,11 +55,11 @@ Java→Python DDD 复现。原 Java 工程：`lghj-web-dist.tar/ai-agent-scaffoi
 | `domain/agent/adapter/port.py` | `adapter/port/MarketDataPort.java`、`SimTradeProfilePort.java` | 领域出端口接口（行情/画像） |
 | `domain/agent/adapter/model/valobj.py` | `model/valobj/AiAgentConfigTableVO.java`、`AiAgentRegisterVO.java`、`enums/AgentTypeEnum.java`、`properties/AiAgentAutoConfigProperties.java` | 值对象：配置表/注册表/装配类型枚举/装配属性 |
 | `domain/agent/adapter/model/entity.py` | `model/entity/ArmoryCommandEntity.java`、`ChatCommandEntity.java` | 实体：装配命令、多模态对话命令 |
-| `domain/agent/service/chat_service.py` | `service/chat/ChatService.java`、`IChatService.java` | 对话服务：会话复用（内存 Map userId→sessionId）、阻塞/流式消息、交易画像注入（仅 investment-advisor，上限 6000 字符超长加 `...[truncated]`） |
+| `domain/agent/service/chat_service.py` | `service/chat/ChatService.java`、`IChatService.java` | 对话服务：阻塞/流式消息、交易画像注入（仅 investment-advisor，上限 6000 字符超长加 `...[truncated]`）；create_session **每次新建会话**（原 Java 同用户复用同一 sessionId；本工程扩展历史落库后改为每次新建，否则多轮「新建对话」都折进同一历史行且上下文无法隔离；前端单次页面会话内仍复用 advisor_session）；**扩展（原 Java 无）**：get_trace 查询会话执行轨迹、get_team 查询团队结构（Supervisor+专家职能+工具名），供 Agent 流程可视化 |
 | `domain/agent/service/armory/armory_service.py` | `service/IArmoryService.java`、`armory/ArmoryService.java` | 装配服务：遍历配置表驱动装配树 |
 | `domain/agent/service/armory/factory.py` | `armory/factory/DefaultArmoryFactory.java` | 装配工厂 + DynamicContext + 智能体注册表（原 Java 用 Spring 容器，此处线程安全字典） |
 | `domain/agent/service/armory/nodes.py` | `armory/node/RootNode/AiApiNode/ChatModelNode/AgentNode/AgentWorkflowNode/RunnerNode.java` 及 `node/workflow/*`（4 个工作流节点） | 装配树：Root→AiApi→ChatModel→Agent→AgentWorkflow→Runner，路由 loop/parallel/sequential/supervisor |
-| `domain/agent/service/armory/runtime.py` | `com.google.adk`（Event/Content/Part/Session/InMemoryRunner/BaseAgent/LlmAgent/LoopAgent/ParallelAgent/SequentialAgent） | ADK 语义的轻量运行时：会话服务、事件流、transfer_to_agent 层级编排、工具调用循环（MAX_TOOL_ROUNDS=10） |
+| `domain/agent/service/armory/runtime.py` | `com.google.adk`（Event/Content/Part/Session/InMemoryRunner/BaseAgent/LlmAgent/LoopAgent/ParallelAgent/SequentialAgent） | ADK 语义的轻量运行时：会话服务、事件流、transfer_to_agent 层级编排、工具调用循环（MAX_TOOL_ROUNDS=10）；**扩展（原 Java 无）**：会话 trace 打点（run_start/llm_call/transfer/tool/agent_text，含耗时与结果摘要），只记录不影响对话行为 |
 | `domain/agent/service/armory/model_client.py` | `AiApiNode`（OpenAiApi）+ `ChatModelNode`（OpenAiChatModel）+ `AgentNode`（SpringAI 适配器） | litellm 客户端（OpenAI 兼容协议调 DeepSeek），api_base 由 base-url + completions-path 推导 |
 | `domain/agent/service/matter/local_tools.py` | `armory/matter/mcp/server/InvestmentTradeProfileMcpService.java`、`MarketRealtimeMcpService.java`、`InvestmentTradeProfileMcpServerConfig.java` | 本地工具：querySimTradeProfile / queryRealtimeMarket，工具描述、参数说明、错误文案照抄原 Java 注解；注册表 bean 名 investmentTradeProfileMcp / marketRealtimeMcp |
 
@@ -68,7 +75,7 @@ Java→Python DDD 复现。原 Java 工程：`lghj-web-dist.tar/ai-agent-scaffoi
 
 | 文件 | 对应原 Java | 说明 |
 | --- | --- | --- |
-| `trigger/http/agent_controller.py` | `trigger/http/AgentServiceController.java`、`api/IAgentService.java` | 4 个对外接口（GET query_ai_agent_config_list；GET/POST create_session；POST chat；POST chat_stream），统一 Response 契约、AppException/UN_ERROR 兜底、StreamingResponse 流式（对齐 ResponseBodyEmitter 原样写文本流语义） |
+| `trigger/http/agent_controller.py` | `trigger/http/AgentServiceController.java`、`api/IAgentService.java` | 4 个对外接口（GET query_ai_agent_config_list；GET/POST create_session；POST chat；POST chat_stream），统一 Response 契约、AppException/UN_ERROR 兜底、StreamingResponse 流式（对齐 ResponseBodyEmitter 原样写文本流语义）；**扩展（原 Java 无）**：GET /api/v1/trace（会话执行轨迹）、GET /api/v1/agent_team（团队结构），供前端 Agent 流程可视化 |
 
 ## 8. app/resources/agent/ 资源（双语命名，代码按实际文件名读取）
 
@@ -87,5 +94,27 @@ Java→Python DDD 复现。原 Java 工程：`lghj-web-dist.tar/ai-agent-scaffoi
 | POST `/api/v1/create_session` | `{agentId, userId}` | 同上 |
 | POST `/api/v1/chat` | `{agentId, userId, sessionId, message}`（sessionId 空则自动建会话） | `Response{..., data:{content}}`（各事件文本按 `\n` 连接） |
 | POST `/api/v1/chat_stream` | 同 chat | HTTP 200，`text/plain; charset=utf-8`，chunked；事件文本原样写入响应体（无 `data:` SSE 前缀，对齐 ResponseBodyEmitter） |
+
+**扩展接口（本工程新增，原 Java 无——Agent 流程可视化 + 历史 + 知识库）：**
+
+| 方法 路径 | 请求 | 响应 |
+| --- | --- | --- |
+| GET `/api/v1/trace?agentId&userId&sessionId` | Query 参数 | `Response{code:"0000", data:[{seq,ts,type,agent,name,args,result,durationMs}]}`；type=run_start/llm_call/transfer/tool/agent_text，按发生顺序；会话不存在返回空列表 |
+| GET `/api/v1/agent_team?agentId` | Query 参数 | `Response{..., data:{agentId, supervisor:{name,description}, experts:[{name,description,outputKey}], tools:[工具名]}}`（管家卡片职能说明的数据源） |
+| GET `/api/v1/history_list?userId&limit` | Query 参数 | `Response{..., data:[{sessionId,agentId,title,updateTime}]}`（MySQL 持久化，最近活跃倒序） |
+| GET `/api/v1/history_messages?sessionId` | Query 参数 | `Response{..., data:[{role,content,createTime}]}`（assistant 附 trace 数组） |
+| DELETE `/api/v1/history_session?sessionId&userId` | Query 参数 | `Response{..., data:{deleted}}`（按归属校验后物理删除） |
+| POST `/api/v1/kb_upload` | multipart：userId(Form) + file(File，txt/md ≤512KB) | `Response{..., data:{docId,title,charCount}}` |
+| GET `/api/v1/kb_list?userId` | Query 参数 | `Response{..., data:[{id,title,charCount,createTime}]}` |
+| DELETE `/api/v1/kb_doc?docId&userId` | Query 参数 | `Response{..., data:{deleted}}`（逻辑删除，按归属校验） |
+
+**其他扩展行为：**
+- 专家智能体（6 个）经 RunnerNode 注册为可独立对话 agent（agentId=专家名，各自独立会话服务），
+  `create_session(agentId="MarketAnalysisAgent")` 即可单独会话；`query_ai_agent_config_list`
+  契约不变（仍只返回 investment-advisor）；
+- 会话幂等键为 (agentId, userId)：队长与各专家、不同专家之间会话互相独立；
+- 本地工具新增 `queryKnowledgeBase`（bean 名 knowledgeBaseMcp，装配时显式并入 ChatModel，
+  不改 yml）；`_build_user_context_message` 注入用户知识库文档标题清单（全体智能体可见）；
+- 每轮对话（阻塞与流式）落库 MySQL 历史，存储不可用时降级为仅内存会话。
 
 错误码：`E0001` 智能体ID不存在；`0001` 未知失败；`0002` 非法参数。

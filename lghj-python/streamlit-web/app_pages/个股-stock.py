@@ -99,7 +99,7 @@ if tab_n.open:
         with st.container(border=True):
             st.markdown(
                 f"**{n.get('title', '')}**　"
-                f"<span style='color:#8B949E;font-size:12px'>"
+                f"<span style='color:#6B7280;font-size:12px'>"
                 f"{n.get('source', '')} · {n.get('publishTime', '')}</span>",
                 unsafe_allow_html=True,
             )

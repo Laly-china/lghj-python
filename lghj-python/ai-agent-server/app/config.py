@@ -58,9 +58,25 @@ class Settings(BaseSettings):
     # ---- 会话 ----
     # 原 Java ChatService 使用内存 ConcurrentHashMap 存 userId -> sessionId，此处保持一致
 
+    # ---- 扩展存储（本工程新增，原 Java 无）：会话历史 + 知识库，复用主控的 MySQL ----
+    mysql_host: str = "127.0.0.1"
+    mysql_port: int = 3306
+    mysql_database: str = "lghj"
+    mysql_username: str = "root"
+    mysql_password: str = "123456"
+
     def resolved_api_key(self) -> str:
         """解析生效的 LLM API Key：DEEPSEEK_API_KEY 优先，其次 AI_AGENT_API_KEY。"""
         return self.deepseek_api_key or self.ai_agent_api_key
+
+    @property
+    def agent_database_url(self) -> str:
+        """扩展存储的 SQLAlchemy 连接串（与 lghj-server 同库不同表，agent_* 前缀隔离）。"""
+        return (
+            f"mysql+pymysql://{self.mysql_username}:{self.mysql_password}"
+            f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
+            "?charset=utf8mb4"
+        )
 
 
 def load_settings() -> Settings:

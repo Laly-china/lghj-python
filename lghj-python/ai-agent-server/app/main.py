@@ -31,6 +31,8 @@ from app.domain.agent.service.armory.runtime import ToolSpec
 from app.domain.agent.service.chat_service import ChatService
 from app.domain.agent.service.matter.local_tools import build_local_tool_registry
 from app.infrastructure.adapter.http_ports import HttpMarketDataPort, HttpSimTradeProfilePort
+from app.infrastructure.chat_store import DbKbSearchPort
+from app.infrastructure.database import ensure_tables
 from app.trigger.http.agent_controller import router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -44,9 +46,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ---- infrastructure 端口（对应原 Java -app 模块 adapter/port 的 HTTP 实现类）----
     market_data_port: MarketDataPort = HttpMarketDataPort(settings)
     sim_trade_profile_port: SimTradeProfilePort = HttpSimTradeProfilePort(settings)
+    # 知识库检索端口（本工程扩展，MySQL 实现）
+    kb_search_port = DbKbSearchPort()
 
-    # ---- matter 本地工具注册表（对应原 Java 两个本地 MCP ToolCallbackProvider bean）----
-    local_tool_registry: dict[str, list[ToolSpec]] = build_local_tool_registry(market_data_port, sim_trade_profile_port)
+    # ---- matter 本地工具注册表（对应原 Java 两个本地 MCP ToolCallbackProvider bean；
+    #      另含本工程扩展的 knowledgeBaseMcp）----
+    local_tool_registry: dict[str, list[ToolSpec]] = build_local_tool_registry(
+        market_data_port, sim_trade_profile_port, kb_search_port
+    )
 
     # ---- 装配工厂 + 装配链（对应原 Java DefaultArmoryFactory + 各 Node @Resource 注入）----
     factory = DefaultArmoryFactory()
@@ -61,6 +68,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        # 扩展存储（历史/知识库）幂等建表（本工程扩展，原 Java 无）
+        ensure_tables()
         # 对齐原 Java AiAgentAutoConfig.onApplicationEvent(ApplicationReadyEvent)：
         # 项目完全启动成功后执行智能体装配
         logger.info("Ai Agent 智能体装配开始: %s", list(properties.tables.keys()))

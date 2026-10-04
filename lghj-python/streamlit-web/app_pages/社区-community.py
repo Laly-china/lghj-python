@@ -38,7 +38,7 @@ def blog_card(b: dict) -> None:
         head = st.container(horizontal=True, horizontal_alignment="left")
         st.markdown(
             f"**{b.get('title', '')}**　"
-            f"<span style='color:#8B949E;font-size:12px'>{b.get('name', '匿名')} · "
+            f"<span style='color:#6B7280;font-size:12px'>{b.get('name', '匿名')} · "
             f"{b.get('createTime', '')}</span>",
             unsafe_allow_html=True,
         )
@@ -83,7 +83,7 @@ def comments_area(blog_id: int) -> None:
             with st.container(border=depth > 0):
                 st.markdown(
                     f"{'　' * depth}**{u.get('nickname') or u.get('id', '游客')}**　"
-                    f"<span style='color:#8B949E;font-size:11px'>{c.get('liked') or 0} 赞</span>",
+                    f"<span style='color:#6B7280;font-size:11px'>{c.get('liked') or 0} 赞</span>",
                     unsafe_allow_html=True,
                 )
                 st.caption(c.get("content", ""))
