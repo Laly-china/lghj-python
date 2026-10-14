@@ -29,6 +29,7 @@ from app.domain.agent.service.armory.factory import DefaultArmoryFactory
 from app.domain.agent.service.armory.nodes import build_armory_chain
 from app.domain.agent.service.armory.runtime import ToolSpec
 from app.domain.agent.service.chat_service import ChatService
+from app.domain.agent.service.expert_team_service import ExpertTeamService
 from app.domain.agent.service.matter.local_tools import build_local_tool_registry
 from app.infrastructure.adapter.http_ports import HttpMarketDataPort, HttpSimTradeProfilePort
 from app.trigger.http.agent_controller import router
@@ -57,6 +58,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ---- 领域服务（对应原 Java @Service ChatService）----
     chat_service = ChatService(factory, properties, sim_trade_profile_port)
+    # 专家团权重服务（本系统扩展：成员固定、权重可调、按 userId 独立保存）
+    expert_team_service = ExpertTeamService()
+    chat_service.bind_expert_team_service(expert_team_service)
     armory_service = ArmoryService(factory)
 
     @asynccontextmanager
@@ -73,6 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.factory = factory
     app.state.properties = properties
     app.state.chat_service = chat_service
+    app.state.expert_team_service = expert_team_service
 
     app.include_router(router)
 

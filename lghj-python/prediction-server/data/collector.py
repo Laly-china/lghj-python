@@ -46,6 +46,8 @@ _BJ_TZ = timezone(timedelta(hours=8))
 _MINUTE_MEMO_TTL = 300
 # 交易日历缓存有效期（天）
 _TRADE_CAL_TTL_DAYS = 30
+# 交易日历必须覆盖到的"未来天数"下限（30 个交易日 ≈ 45 自然日，再留缓冲）
+_TRADE_CAL_MIN_FUTURE_DAYS = 75
 
 _SYMBOL_FULL = re.compile(r"^(sh|sz|bj)(\d{6})$")      # 带交易所前缀
 _SYMBOL_BARE = re.compile(r"^(\d{6})$")                # 裸 6 位代码
@@ -482,29 +484,49 @@ def _safe_round(v, nd=4) -> Optional[float]:
 def get_trade_dates() -> list:
     """
     获取交易日列表（升序，元素为 "YYYY-MM-DD" 字符串）。
-    优先读缓存（30 天有效），失败时在线采集，再失败返回空列表（由调用方退化处理）。
+
+    优先级：
+      1. 读本地缓存，且「文件未过期」+「覆盖到未来足够远」→ 直接复用；
+      2. 缓存缺失/过期/覆盖不足 → 在线采集并落盘；
+      3. 在线失败 → 复用旧缓存（即便覆盖不足，好过没有）；
+      4. 完全无数据 → 用周末规则生成近似日历（保证功能可用，日志告警）。
     """
     cal_path = CACHE_DIR / "trade_dates.csv"
     today = now_bj().date()
+    # 需要覆盖到"未来 N 个交易日"之外，多留 30 天缓冲
+    required_end = today + timedelta(days=_TRADE_CAL_MIN_FUTURE_DAYS)
+    cached_dates: list = []
+
     if cal_path.exists():
         age_days = (today - datetime.fromtimestamp(cal_path.stat().st_mtime, _BJ_TZ).date()).days
-        if age_days <= _TRADE_CAL_TTL_DAYS:
-            try:
-                df = pd.read_csv(cal_path, dtype=str)
-                if len(df) > 0:
-                    return sorted(df.iloc[:, 0].astype(str).tolist())
-            except Exception as e:
-                logger.warning("交易日历缓存损坏: %s", e)
+        try:
+            df = _read_calendar_file(cal_path)
+            if df:
+                cached_dates = df
+                covered = str(cached_dates[-1]) >= required_end.isoformat()
+                if age_days <= _TRADE_CAL_TTL_DAYS and covered:
+                    return cached_dates
+                if not covered:
+                    logger.info(
+                        "交易日历覆盖不足（止于 %s，需覆盖至 %s），触发在线刷新",
+                        cached_dates[-1], required_end.isoformat())
+        except Exception as e:
+            logger.warning("交易日历缓存损坏: %s", e)
+
     try:
         import akshare as ak
         df = ak.tool_trade_date_hist_sina()
         col = df.columns[0]
         dates = sorted(pd.to_datetime(df[col]).dt.strftime("%Y-%m-%d").tolist())
+        # 在线日历若仍覆盖不足，补齐尾部（周末规则近似，仅补未来缺口）
+        dates = _extend_calendar_tail(dates, required_end)
         pd.DataFrame({"trade_date": dates}).to_csv(cal_path, index=False)
         return dates
     except Exception as e:
         logger.warning("交易日历采集失败（将退化为跳过周末推算）: %s", e)
-        # 用周末规则生成一个覆盖前后若干年的近似日历，保证功能可用
+        # 优先复用旧缓存（即便覆盖不足），其次用周末规则生成近似日历
+        if cached_dates:
+            return _extend_calendar_tail(cached_dates, required_end)
         dates = []
         d = date(today.year - 3, 1, 1)
         end = date(today.year + 2, 12, 31)
@@ -513,6 +535,34 @@ def get_trade_dates() -> list:
                 dates.append(d.isoformat())
             d += timedelta(days=1)
         return dates
+
+
+def _read_calendar_file(path: Path) -> list:
+    """读取交易日历 CSV，返回升序日期列表；为空返回 []。"""
+    df = pd.read_csv(path, dtype=str)
+    if len(df) == 0:
+        return []
+    return sorted(df.iloc[:, 0].astype(str).tolist())
+
+
+def _extend_calendar_tail(dates: list, required_end: date) -> list:
+    """
+    交易日历尾部补齐：若日历最后一天早于 required_end，按"跳过周末"规则补足。
+    仅补未来缺口，不修改已有历史日期（历史精确性由数据源保证）。
+    """
+    if not dates:
+        return dates
+    last = datetime.strptime(dates[-1], "%Y-%m-%d").date()
+    d = last + timedelta(days=1)
+    extra = []
+    while d <= required_end:
+        if d.weekday() < 5:
+            extra.append(d.isoformat())
+        d += timedelta(days=1)
+    if extra:
+        logger.info("交易日历尾部补齐 %d 天（%s ~ %s）",
+                    len(extra), extra[0], extra[-1])
+    return dates + extra
 
 
 def next_trade_dates(after_date: str, n: int) -> list:
@@ -524,7 +574,7 @@ def next_trade_dates(after_date: str, n: int) -> list:
     else:
         future = [d for d in cal if d > after_date]
         result = future[:n]
-    # 日历不够长（退化日历止于未来 2 年内足够，一般不会发生）→ 用周末规则补齐
+    # 日历仍不够长（极端情况）→ 用周末规则补齐
     while len(result) < n:
         last = result[-1] if result else after_date
         d = datetime.strptime(last, "%Y-%m-%d").date() + timedelta(days=1)

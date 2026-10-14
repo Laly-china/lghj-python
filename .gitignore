@@ -9,6 +9,11 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# ===== IDE 本地配置（含本地路径与个人运行配置，不入库）=====
+.idea/
+*.iml
+.vscode/
+
 # ===== 运行日志与临时文件 =====
 *.log
 run-t-*.log

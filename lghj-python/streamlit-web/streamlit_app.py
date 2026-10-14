@@ -28,6 +28,7 @@ login_pages = [
 trade_pages = [
     st.Page("app_pages/行情-market.py", title="行情", icon=":material/monitoring:"),
     st.Page("app_pages/个股-stock.py", title="个股", icon=":material/candlestick_chart:"),
+    st.Page("app_pages/基金-fund.py", title="基金", icon=":material/savings:"),
     st.Page("app_pages/交易-trade.py", title="模拟交易", icon=":material/swap_horiz:"),
     st.Page("app_pages/自选-watchlist.py", title="自选股", icon=":material/star:"),
 ]

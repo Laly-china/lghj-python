@@ -279,3 +279,137 @@ def api_get_quote_cached(market: str, code: str) -> dict | None:
     from api import get_quote
 
     return get_quote(market, code)
+
+
+# ===========================================================================
+# 基金相关组件
+# ===========================================================================
+
+def fund_nav_option(nav_data: list[dict], name: str = "") -> dict:
+    """基金单位净值走势：净值线 + 日增长率柱（双 Y 轴）。"""
+    if not nav_data:
+        return {}
+    dates = [d.get("date", "") for d in nav_data]
+    navs = [d.get("nav") for d in nav_data]
+    pcts = [
+        {"value": d.get("dayPct"),
+         "itemStyle": {"color": UP if (d.get("dayPct") or 0) >= 0 else DOWN}}
+        for d in nav_data
+    ]
+    return {
+        "backgroundColor": "transparent",
+        "animation": False,
+        "tooltip": _tooltip(),
+        "legend": {"data": ["单位净值", "日增长率"], "textStyle": {"color": AXIS_LABEL}, "top": 0},
+        "grid": [
+            {"left": 62, "right": 62, "top": 30, "height": "60%"},
+            {"left": 62, "right": 62, "top": "80%", "height": "14%"},
+        ],
+        "xAxis": [
+            {"type": "category", "data": dates, "gridIndex": 0, **_base_axis({"boundaryGap": False})},
+            {"type": "category", "data": dates, "gridIndex": 1,
+             **_base_axis({"axisLabel": {"show": False}})},
+        ],
+        "yAxis": [
+            {"type": "value", "scale": True, "gridIndex": 0, "name": "净值",
+             "nameTextStyle": {"color": AXIS_LABEL}, **_base_axis()},
+            {"type": "value", "gridIndex": 1, "name": "涨跌%",
+             "nameTextStyle": {"color": AXIS_LABEL},
+             **_base_axis({"axisLabel": {"show": False}, "splitLine": {"show": False}})},
+        ],
+        "series": [
+            {"name": "单位净值", "type": "line", "data": navs, "showSymbol": False,
+             "lineStyle": {"width": 1.6, "color": "#F0B90B"}, "color": "#F0B90B",
+             "areaStyle": {"color": "rgba(240,185,11,0.10)"}},
+            {"name": "日增长率", "type": "bar", "data": pcts, "xAxisIndex": 1, "yAxisIndex": 1},
+        ],
+    }
+
+
+def fund_metric_row(items: list[dict], title: str, subtitle: str = "") -> None:
+    """精选基金指标行：横向卡片（名称/代码/当日或区间收益/净值/年化）。"""
+    if not items:
+        st.caption(f"{title} 暂无数据")
+        return
+    for it in items:
+        with st.container(border=True):
+            left, mid, right = st.columns([2.4, 1.6, 1.4])
+            with left:
+                st.markdown(
+                    f"**{it.get('name', '')}**　"
+                    f"<span style='color:{AXIS_LABEL};font-size:12px'>{it.get('code', '')}</span>",
+                    unsafe_allow_html=True,
+                )
+                tags = it.get("tags") or []
+                if tags:
+                    tag_html = " ".join(
+                        f"<span style='background:rgba(230,69,69,0.15);color:#FF7B7B;"
+                        f"font-size:11px;padding:1px 6px;border-radius:8px'>{t}</span>"
+                        for t in tags
+                    )
+                    st.markdown(tag_html, unsafe_allow_html=True)
+            with mid:
+                dp = it.get("dayPct")
+                wp = it.get("weekPct")
+                c1 = up_down_color(dp if dp is not None else 0)
+                st.markdown(
+                    f"<span style='color:{c1};font-size:20px;font-weight:700'>"
+                    f"{fmt_signed(dp, '{:+.2f}%')}</span>"
+                    f"<span style='color:{AXIS_LABEL};font-size:11px'>　当日</span>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"<span style='color:{up_down_color(wp if wp is not None else 0)};font-size:12px'>"
+                    f"近1周 {fmt_signed(wp, '{:+.2f}%')}</span>",
+                    unsafe_allow_html=True,
+                )
+            with right:
+                st.markdown(
+                    f"<span style='color:{AXIS_LABEL};font-size:11px'>净值</span> "
+                    f"<span style='color:{TEXT}'>{_f(it.get('nav'))}</span><br>"
+                    f"<span style='color:{AXIS_LABEL};font-size:11px'>近1年</span> "
+                    f"<span style='color:{up_down_color(it.get('yearPct') or 0)}'>"
+                    f"{fmt_signed(it.get('yearPct'), '{:+.2f}%')}</span>",
+                    unsafe_allow_html=True,
+                )
+
+
+def stock_pick_row(items: list[dict], title: str, period_key: str = "changePct") -> None:
+    """精选个股指标行：名称/代码/现价/当日涨幅/区间涨幅/成交额。"""
+    if not items:
+        st.caption(f"{title} 暂无数据")
+        return
+    for it in items:
+        with st.container(border=True):
+            left, mid, right = st.columns([2.4, 1.6, 1.4])
+            with left:
+                st.markdown(
+                    f"**{it.get('name', '')}**　"
+                    f"<span style='color:{AXIS_LABEL};font-size:12px'>{it.get('symbol', '')}</span>",
+                    unsafe_allow_html=True,
+                )
+            with mid:
+                chg = it.get("changePct")
+                pv = it.get(period_key)
+                st.markdown(
+                    f"<span style='color:{up_down_color(chg or 0)};font-size:20px;font-weight:700'>"
+                    f"{fmt_signed(chg, '{:+.2f}%')}</span>"
+                    f"<span style='color:{AXIS_LABEL};font-size:11px'>　当日</span>",
+                    unsafe_allow_html=True,
+                )
+                if period_key != "changePct" and pv is not None:
+                    st.markdown(
+                        f"<span style='color:{up_down_color(pv)};font-size:12px'>"
+                        f"近5日 {fmt_signed(pv, '{:+.2f}%')}</span>",
+                        unsafe_allow_html=True,
+                    )
+            with right:
+                amt = it.get("amount")
+                amt_txt = f"{amt / 1e8:.2f}亿" if isinstance(amt, (int, float)) else "-"
+                st.markdown(
+                    f"<span style='color:{AXIS_LABEL};font-size:11px'>现价</span> "
+                    f"<span style='color:{TEXT}'>{_f(it.get('price'))}</span><br>"
+                    f"<span style='color:{AXIS_LABEL};font-size:11px'>成交额</span> "
+                    f"<span style='color:{TEXT}'>{amt_txt}</span>",
+                    unsafe_allow_html=True,
+                )
