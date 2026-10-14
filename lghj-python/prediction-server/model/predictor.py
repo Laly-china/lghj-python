@@ -18,12 +18,15 @@ checkpoint 格式（由 训练模型-train-model.py 生成）：
 from __future__ import annotations
 
 import logging
+import statistics
 from pathlib import Path
 from typing import Optional
 
 import torch
 
 from model.lstm_model import (LSTMForecast, normalize_window, denormalize,
+                              anchor_to_last_price, rescale_volatility,
+                              smooth_predictions,
                               DEFAULT_SEQ_LEN, DEFAULT_PRED_LEN)
 
 logger = logging.getLogger("prediction-server.predictor")
@@ -31,6 +34,9 @@ logger = logging.getLogger("prediction-server.predictor")
 BASE_DIR = Path(__file__).resolve().parent.parent          # prediction-server/
 CHECKPOINT_DIR = BASE_DIR / "model" / "checkpoints"        # 权重目录（代码按路径引用，保留英文）
 DEFAULT_CHECKPOINT = CHECKPOINT_DIR / "lstm_30d.pt"
+
+# 多窗口集成：用最近若干个"逐日后移"的窗口分别推理并取中位数，降低对输入边界的敏感度
+ENSEMBLE_WINDOWS = 3
 
 
 class CheckpointNotFoundError(FileNotFoundError):
@@ -68,17 +74,77 @@ class PricePredictor:
     def pred_len(self) -> int:
         return self.model.pred_len
 
-    def predict(self, closes: list) -> list:
-        """
-        输入历史收盘价列表（升序按交易日，长度 >= seq_len），
-        返回未来 pred_len 个交易日的收盘价（float 列表，原生类型）。
-        """
-        if closes is None or len(closes) < self.seq_len:
-            raise ValueError(
-                f"历史收盘价不足: 需要 >= {self.seq_len} 个交易日，实际 {0 if not closes else len(closes)}")
-        window = [float(v) for v in closes[-self.seq_len:]]
-        norm, mean, std = normalize_window(window)
+    # ---------------------- 内部：单窗口原始推理 ----------------------
+    def _infer_window(self, window: list) -> list:
+        """对给定窗口（长度 == seq_len）做一次前向推理，返回反归一化价格列表。"""
+        norm, mean, std = normalize_window([float(v) for v in window])
         x = torch.tensor(norm, dtype=torch.float32).view(1, -1, 1)
         with torch.no_grad():
             y = self.model(x)[0].tolist()
         return [round(v, 4) for v in denormalize(y, mean, std)]
+
+    def predict(self, closes: list, *,
+                anchor: bool = True,
+                rescale_vol: bool = True,
+                smooth: bool = True,
+                vol_ratio: float = 0.5) -> list:
+        """
+        输入历史收盘价列表（升序按交易日，长度 >= seq_len），
+        返回未来 pred_len 个交易日的收盘价（float 列表，原生类型）。
+
+        推理逻辑（在原始模型输出之上做三步后处理优化）：
+          1. **多窗口集成**：取最后 seq_len 的窗口，以及向前平移 1/2 日的窗口，
+             分别推理并对同一天取中位数，降低单窗口边界敏感性；
+          2. **波动率重标定**（rescale_vol）：把被 MSE 损失压平的预测波动
+             按历史波动的一定比例恢复，避免曲线退化为直线；
+          3. **锚定**（anchor）：平移整条序列使首日严格等于最新真实收盘价，
+             消除图上历史末点与预测首日的跳空缺口。
+          最后可选轻量平滑（smooth）提升可读性。
+
+        三个开关默认开启；关闭后即为"纯模型原始输出"，便于 A/B 对比。
+        """
+        if closes is None or len(closes) < self.seq_len:
+            raise ValueError(
+                f"历史收盘价不足: 需要 >= {self.seq_len} 个交易日，实际 {0 if not closes else len(closes)}")
+        series = [float(v) for v in closes]
+        last_real = series[-1]
+        base_window = series[-self.seq_len:]
+        hist_std = statistics.pstdev(base_window) if len(base_window) > 1 else 0.0
+
+        # 1) 多窗口集成
+        #    窗口 shift=s 的输入截止到"全局倒数第 s 个交易日"，其预测第 0 项对应
+        #    全局未来第 (1-s) 天。因此 shift=s 窗口的第 j 项 → 全局未来第 (j - s) 天。
+        #    对齐后逐日取中位数，等价于用多个"错位一天"的视图投票，降低边界敏感度。
+        raw_preds: list[list] = []
+        max_shift = min(ENSEMBLE_WINDOWS - 1, len(series) - self.seq_len)
+        for shift in range(max_shift + 1):
+            end = len(series) - shift
+            window = series[end - self.seq_len:end]
+            raw_preds.append(self._infer_window(window))
+
+        if len(raw_preds) == 1:
+            pred = raw_preds[0]
+        else:
+            length = len(raw_preds[0])
+            pred = []
+            for i in range(length):
+                # shift=s 窗口第 (i + s) 项，对应全局未来第 i 天
+                vals = [raw_preds[s][i + s] for s in range(len(raw_preds))
+                        if i + s < len(raw_preds[s])]
+                pred.append(statistics.median(vals) if vals else raw_preds[0][i])
+
+        # 2) 波动率重标定（先放大波动，再锚定首日）
+        if rescale_vol:
+            pred = rescale_volatility(pred, last_real, hist_std, self.seq_len,
+                                      vol_ratio=vol_ratio)
+
+        # 3) 锚定最新真实价
+        if anchor:
+            pred = anchor_to_last_price(pred, last_real)
+
+        # 4) 轻量平滑
+        if smooth:
+            pred = smooth_predictions(pred, alpha=0.35)
+
+        return [round(v, 2) for v in pred]
+

@@ -49,6 +49,12 @@ class ChatService:
         # 用户会话缓存：userId -> sessionId（照抄原 Java ConcurrentHashMap 语义）
         self._user_sessions: dict[str, str] = {}
         self._user_sessions_lock = Lock()
+        # 专家团权重服务（可选项；未绑定时权重注入自动跳过）
+        self._expert_team_service = None
+
+    def bind_expert_team_service(self, service) -> None:
+        """绑定专家团服务（由应用启动装配注入，避免构造参数改动影响复现契约）。"""
+        self._expert_team_service = service
 
     # ====================== 对外接口：查询AI智能体配置列表 ======================
 
@@ -161,11 +167,28 @@ class ChatService:
                 "\n请优先基于这份画像分析账户资金、持仓、近期委托、近期成交、交易行为标签和仓位集中度。"
             )
 
+        # 注入用户自定义的专家团权重（仅投资顾问智能体；未自定义时不注入）
+        weight_ctx = self._query_expert_weight_context(agent_id, user_id)
+        if weight_ctx:
+            builder.append(weight_ctx)
+
         # 添加用户问题
         if message and message.strip():
             builder.append(f"\n用户问题：{message}")
 
         return "".join(builder)
+
+    def _query_expert_weight_context(self, agent_id: str, user_id: str) -> str:
+        """查询用户自定义的专家团权重上下文（仅投资顾问智能体）。"""
+        if self.INVESTMENT_ADVISOR_AGENT_ID != agent_id:
+            return ""
+        if self._expert_team_service is None:
+            return ""
+        try:
+            return self._expert_team_service.render_weight_context(user_id)
+        except Exception:  # noqa: BLE001 权重注入失败不应阻断对话
+            logger.warning("渲染专家团权重上下文失败 userId=%s", user_id, exc_info=True)
+            return ""
 
     def _query_sim_trade_profile_context(self, agent_id: str, user_id: str) -> str:
         """查询用户模拟交易画像（仅投资顾问智能体；超长截断到 6000 字符）。"""

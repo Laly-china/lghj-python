@@ -46,6 +46,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 import data.collector as collector
+import data.fund_collector as fund_collector
+import data.stock_rank as stock_rank
 from model.predictor import PricePredictor, CheckpointNotFoundError, DEFAULT_CHECKPOINT
 
 logging.basicConfig(
@@ -86,7 +88,12 @@ def root():
     return {
         "service": "prediction-server",
         "port": 8001,
-        "endpoints": ["/minute/{symbol}", "/predict/{symbol}", "/health"],
+        "endpoints": [
+            "/minute/{symbol}", "/predict/{symbol}", "/health",
+            "/fund/rank", "/fund/overview", "/fund/search", "/fund/nav/{code}",
+            "/fund/picks/daily", "/fund/picks/weekly",
+            "/rank/stock/daily", "/rank/stock/weekly",
+        ],
         "checkpoint": str(DEFAULT_CHECKPOINT.name),
         "checkpoint_loaded": _predictor is not None,
     }
@@ -190,15 +197,22 @@ def predict(symbol: str):
     predictions = [{"date": d, "price": round(p, 2)}
                    for d, p in zip(future_dates, pred_prices)]
 
+    last_real = float(closes[-1])
     return {
         "symbol": sym["symbol"],
         "predictions": predictions,
         "generated_at": collector.now_bj().strftime("%Y-%m-%d %H:%M:%S"),
         "data_date": last_date,
+        "last_close": round(last_real, 2),
+        "expected_change_pct": round((float(pred_prices[-1]) / last_real - 1) * 100, 2)
+        if pred_prices and last_real else None,
         "model": {
             "type": "LSTM",
             "checkpoint": DEFAULT_CHECKPOINT.name,
             "meta": predictor.meta,
+            # 推理后处理链（便于调用方识别口径；关闭任一开关即为纯模型输出）
+            "postprocess": ["multi_window_ensemble", "volatility_rescale",
+                            "anchor_to_last_close", "ema_smooth"],
         },
     }
 
@@ -208,6 +222,129 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     """所有 HTTPException 统一输出 {"error","msg"} 裸 JSON。"""
     return JSONResponse(status_code=exc.status_code,
                         content={"error": "http_error", "msg": str(exc.detail)})
+
+
+# ===========================================================================
+# 基金接口（/fund/**）—— 裸 JSON，供前端「基金」页与主页精选板块使用
+# ===========================================================================
+
+def _fund_error(e: Exception, symbol: str = "") -> JSONResponse:
+    """基金类接口统一错误映射（与 /minute /predict 的错误风格保持一致）。"""
+    logger.error("基金接口异常 %s: %s", symbol, e)
+    return JSONResponse(status_code=502,
+                        content={"error": "fund_data_unavailable", "msg": str(e)})
+
+
+@app.get("/fund/rank")
+def fund_rank(period: str = "day", n: int = 20, fundType: str = ""):
+    """基金排行（按周期收益率）。
+
+    period: day/week/month/quarter/half_year/year/year3/ytd/all
+    n: 返回条数（默认 20）
+    fundType: 可选，按基金简称包含匹配（如 "债券"、"指数"、"医药"）
+
+    返回：{"period","period_label","count","updated_at","items":[...]}
+    items 字段：code/name/date/nav/navAcc/dayPct/weekPct/monthPct/quarterPct/
+               halfYearPct/yearPct/year3Pct/ytdPct/allPct/feePct
+    """
+    try:
+        return fund_collector.rank_top(n=n, period=period, fund_type=fundType or None)
+    except collector.CollectorError as e:
+        return _fund_error(e, f"rank/{period}")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("基金排行接口异常")
+        return _fund_error(e, f"rank/{period}")
+
+
+@app.get("/fund/overview")
+def fund_overview():
+    """全市场基金概览：数量、上涨/下跌家数、平均日/周涨幅。"""
+    try:
+        return fund_collector.market_overview()
+    except collector.CollectorError as e:
+        return _fund_error(e, "overview")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("基金概览接口异常")
+        return _fund_error(e, "overview")
+
+
+@app.get("/fund/search")
+def fund_search(keyword: str = "", limit: int = 30):
+    """基金搜索（代码 / 名称 / 拼音）。返回裸 JSON 数组。"""
+    try:
+        return fund_collector.search_funds(keyword, limit=limit)
+    except collector.CollectorError as e:
+        return _fund_error(e, f"search/{keyword}")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("基金搜索接口异常")
+        return _fund_error(e, f"search/{keyword}")
+
+
+@app.get("/fund/nav/{code}")
+def fund_nav(code: str):
+    """单只基金历史净值走势。
+
+    返回：{"code","name","count","data":[{"date","nav","dayPct"}...]}
+    """
+    try:
+        return fund_collector.get_fund_nav(code)
+    except collector.CollectorError as e:
+        return _fund_error(e, code)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("基金净值接口异常 %s", code)
+        return _fund_error(e, code)
+
+
+@app.get("/fund/picks/daily")
+def fund_picks_daily(n: int = 10):
+    """每日精选：按当日收益率排序的基金 TopN（含派生评分与标签）。"""
+    try:
+        return fund_collector.daily_picks(n=n)
+    except collector.CollectorError as e:
+        return _fund_error(e, "picks/daily")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("每日基金精选异常")
+        return _fund_error(e, "picks/daily")
+
+
+@app.get("/fund/picks/weekly")
+def fund_picks_weekly(n: int = 10):
+    """每周精选：按近 1 周收益率排序的基金 TopN。"""
+    try:
+        return fund_collector.weekly_picks(n=n)
+    except collector.CollectorError as e:
+        return _fund_error(e, "picks/weekly")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("每周基金精选异常")
+        return _fund_error(e, "picks/weekly")
+
+
+# ===========================================================================
+# 个股排行接口（/rank/**）—— 主页「每日/每周精选」用
+# ===========================================================================
+
+@app.get("/rank/stock/daily")
+def rank_stock_daily(n: int = 10):
+    """每日个股榜：按当日涨跌幅排序 TopN。"""
+    try:
+        return stock_rank.daily_rank_stocks(n=n)
+    except collector.CollectorError as e:
+        return _fund_error(e, "rank/stock/daily")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("每日个股榜异常")
+        return _fund_error(e, "rank/stock/daily")
+
+
+@app.get("/rank/stock/weekly")
+def rank_stock_weekly(n: int = 10, pool: int = 120):
+    """每周个股榜：近 5 个交易日累计涨幅 TopN（pool 为候选池大小）。"""
+    try:
+        return stock_rank.weekly_rank_stocks(n=n, top_pool=pool)
+    except collector.CollectorError as e:
+        return _fund_error(e, "rank/stock/weekly")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("每周个股榜异常")
+        return _fund_error(e, "rank/stock/weekly")
 
 
 if __name__ == "__main__":

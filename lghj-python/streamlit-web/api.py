@@ -215,6 +215,86 @@ def get_news(symbol: str, recent_n: int = 20) -> list[dict]:
     return data or []
 
 
+# ---------------- 基金（8001） ----------------
+
+# 基金排行周期 -> 中文标签（与 8001 /fund/rank 的 period 参数对应）
+FUND_PERIODS: dict[str, str] = {
+    "day": "日",
+    "week": "近1周",
+    "month": "近1月",
+    "quarter": "近3月",
+    "half_year": "近6月",
+    "year": "近1年",
+    "year3": "近3年",
+    "ytd": "今年来",
+    "all": "成立来",
+}
+
+
+@st.cache_data(ttl=600, max_entries=8)
+def fund_overview() -> dict | None:
+    """全市场基金概览 {total, up, down, flat, avgDayPct, avgWeekPct}。"""
+    ok, data, _e = pred_api("/fund/overview")
+    return data if ok else None
+
+
+@st.cache_data(ttl=600, max_entries=32)
+def fund_rank(period: str = "day", n: int = 50, fund_type: str = "") -> list[dict]:
+    """基金排行（按周期收益率）。返回 items 列表。"""
+    q = f"/fund/rank?period={period}&n={n}"
+    if fund_type:
+        q += f"&fundType={fund_type}"
+    ok, data, _e = pred_api(q)
+    if ok and isinstance(data, dict):
+        return data.get("items") or []
+    return []
+
+
+@st.cache_data(ttl=1800, max_entries=16)
+def fund_picks(kind: str = "daily", n: int = 10) -> dict | None:
+    """基金每日/每周精选。kind: daily|weekly。"""
+    ok, data, _e = pred_api(f"/fund/picks/{kind}?n={n}")
+    return data if ok else None
+
+
+@st.cache_data(ttl=900, max_entries=64)
+def fund_nav(code: str) -> dict | None:
+    """单只基金历史净值 {code,name,count,data:[{date,nav,dayPct}]}。"""
+    ok, data, _e = pred_api(f"/fund/nav/{code}")
+    return data if ok else None
+
+
+@st.cache_data(ttl=1800, max_entries=32)
+def fund_search(keyword: str, limit: int = 30) -> list[dict]:
+    """基金搜索（代码/名称/拼音）。"""
+    if not (keyword or "").strip():
+        return []
+    ok, data, _e = pred_api(f"/fund/search?keyword={keyword.strip()}&limit={limit}")
+    if ok and isinstance(data, list):
+        return data
+    return []
+
+
+# ---------------- 个股排行（8001，主页精选用） ----------------
+
+@st.cache_data(ttl=120, max_entries=8)
+def stock_rank_daily(n: int = 10) -> list[dict]:
+    """每日个股榜（按当日涨跌幅）。"""
+    ok, data, _e = pred_api(f"/rank/stock/daily?n={n}")
+    if ok and isinstance(data, dict):
+        return data.get("items") or []
+    return []
+
+
+@st.cache_data(ttl=1800, max_entries=8)
+def stock_rank_weekly(n: int = 10, pool: int = 120) -> list[dict]:
+    """每周个股榜（近 5 个交易日累计涨幅）。耗时较长，缓存 30 分钟。"""
+    ok, data, _e = pred_api(f"/rank/stock/weekly?n={n}&pool={pool}")
+    if ok and isinstance(data, dict):
+        return data.get("items") or []
+    return []
+
+
 # ---------------- 自选股 ----------------
 
 def optional_list() -> list[dict]:
@@ -395,6 +475,32 @@ def agent_chat(agent_id: str, user_id: int, session_id: str, message: str) -> tu
     if ok and isinstance(data, dict):
         return True, data.get("content") or ""
     return False, info or "智能体暂不可用"
+
+
+# ---------------- 专家团（8091 扩展） ----------------
+
+def expert_team_config(user_id: int) -> dict | None:
+    """查询用户专家团配置（成员固定 + 当前权重）。"""
+    ok, data, _i = agent_api("GET", "/api/v1/expert_team/config", params={"userId": str(user_id)})
+    return data if ok else None
+
+
+def expert_team_update(user_id: int, weights: dict[str, int]) -> tuple[bool, dict | None, str]:
+    """更新专家团权重，返回 (ok, 配置, 提示)。成员不可增删，合计须为 100。"""
+    ok, data, info = agent_api(
+        "POST",
+        "/api/v1/expert_team/weights",
+        json_body={"userId": str(user_id), "weights": weights},
+    )
+    if ok and isinstance(data, dict):
+        return True, data, "权重已保存"
+    return False, None, info or "保存失败"
+
+
+def expert_team_reset(user_id: int) -> dict | None:
+    """重置为默认均分权重。"""
+    ok, data, _i = agent_api("POST", "/api/v1/expert_team/reset", params={"userId": str(user_id)})
+    return data if ok else None
 
 
 # ---------------- 管理端（userType=3） ----------------

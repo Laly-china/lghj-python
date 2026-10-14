@@ -27,9 +27,12 @@ from app.api.dto import (
     ChatResponseDTO,
     CreateSessionRequestDTO,
     CreateSessionResponseDTO,
+    ExpertTeamConfigResponseDTO,
+    ExpertTeamWeightUpdateRequestDTO,
 )
 from app.api.response import Response
 from app.domain.agent.service.chat_service import ChatService
+from app.domain.agent.service.expert_team_service import ExpertTeamError
 from app.types.app_exception import AppException
 from app.types.response_code import ResponseCode
 
@@ -41,6 +44,11 @@ router = APIRouter(prefix="/api/v1")
 def _get_chat_service(request: Request) -> ChatService:
     """从应用状态取对话服务（等价原 Java @Resource 注入）。"""
     return request.app.state.chat_service  # type: ignore[no-any-return]
+
+
+def _get_expert_team_service(request: Request):
+    """从应用状态取专家团服务。"""
+    return request.app.state.expert_team_service
 
 
 @router.get("/query_ai_agent_config_list", response_model=Response[list[AiAgentConfigResponseDTO]])
@@ -167,3 +175,60 @@ def chat_stream(request: Request, dto: ChatRequestDTO) -> Response[ChatResponseD
             "X-Accel-Buffering": "no",  # nginx 场景关闭缓冲，保证流式
         },
     )
+
+
+# ====================== 专家团权重配置（本系统扩展能力） ======================
+# 需求：专家团成员人数与角色固定，用户仅可调整各成员权重，
+#       以获得符合个人预期的投资计划；权重按用户独立保存，在输出层加权汇总。
+
+@router.get("/expert_team/config", response_model=Response[ExpertTeamConfigResponseDTO])
+def get_expert_team_config(request: Request, userId: str) -> Response[ExpertTeamConfigResponseDTO]:
+    """查询某用户的专家团配置（成员固定 + 当前权重）。"""
+    try:
+        cfg = _get_expert_team_service(request).query_config(userId)
+        return Response.build(
+            ResponseCode.SUCCESS.value,
+            ResponseCode.SUCCESS.info,
+            ExpertTeamConfigResponseDTO(**cfg),
+        )
+    except Exception:  # noqa: BLE001
+        logger.error("query expert team config failed", exc_info=True)
+        return Response.build(ResponseCode.UN_ERROR.value, ResponseCode.UN_ERROR.info)
+
+
+@router.post("/expert_team/weights", response_model=Response[ExpertTeamConfigResponseDTO])
+def update_expert_team_weights(
+    request: Request, dto: ExpertTeamWeightUpdateRequestDTO
+) -> Response[ExpertTeamConfigResponseDTO]:
+    """更新专家团权重（成员不可增删，合计须为 100）。"""
+    try:
+        cfg = _get_expert_team_service(request).update_weights(
+            dto.userId or "", dto.weights or {}
+        )
+        return Response.build(
+            ResponseCode.SUCCESS.value,
+            ResponseCode.SUCCESS.info,
+            ExpertTeamConfigResponseDTO(**cfg),
+        )
+    except ExpertTeamError as exc:
+        # 业务校验失败：返回明确原因，便于前端提示（0002 非法参数）
+        logger.warning("update expert team weights rejected: %s", exc)
+        return Response.build(ResponseCode.ILLEGAL_PARAMETER.value, str(exc))
+    except Exception:  # noqa: BLE001
+        logger.error("update expert team weights failed", exc_info=True)
+        return Response.build(ResponseCode.UN_ERROR.value, ResponseCode.UN_ERROR.info)
+
+
+@router.post("/expert_team/reset", response_model=Response[ExpertTeamConfigResponseDTO])
+def reset_expert_team_weights(request: Request, userId: str) -> Response[ExpertTeamConfigResponseDTO]:
+    """重置为默认均分权重。"""
+    try:
+        cfg = _get_expert_team_service(request).reset(userId)
+        return Response.build(
+            ResponseCode.SUCCESS.value,
+            ResponseCode.SUCCESS.info,
+            ExpertTeamConfigResponseDTO(**cfg),
+        )
+    except Exception:  # noqa: BLE001
+        logger.error("reset expert team weights failed", exc_info=True)
+        return Response.build(ResponseCode.UN_ERROR.value, ResponseCode.UN_ERROR.info)
