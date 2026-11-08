@@ -30,7 +30,14 @@ lghj-python/                     本工程根目录
 │   ├── .streamlit/config.toml   深色 + THS 红主题（涨红跌绿）
 │   ├── app_pages/               7 个页面（行情/个股/交易/自选/AI投顾/社区/管理端）
 │   └── 启动前端-run-web.bat      一键启动
-└── tests/                       Phase 7 联调自测（pytest 契约测试，68 条用例）
+├── agent-web/                   AI 投顾终端（NiceGUI，端口 8502，参考 Marvis 布局）
+│   ├── 文件清单-file-manifest.md  文件清单/扩展接口依赖说明
+│   ├── main.py                  登录 + 马维斯式左栏（新建对话/管家团队/知识库/历史/账户卡片）
+│   │                              + 对话主区（实时思考芯片 + 右上角工作指示）
+│   ├── api_client.py            8080 登录 / 8091 chat·trace·history·kb 客户端
+│   └── 启动投顾终端-run-agent-web.bat  一键启动
+└── tests/                       Phase 7 联调自测（pytest 契约测试，73 条用例，
+    │                              含 Agent 可视化/历史/知识库扩展接口用例）
     ├── 文件清单-file-manifest.md  测试文件双语说明与运行方式
     ├── API清单-api-inventory.md   前端 7 模块梳理出的全量 API 契约清单（57 项）
     ├── 联调报告-integration-report.md  覆盖率/通过率/bug 清单/端到端结论
@@ -54,6 +61,31 @@ lghj-python/                     本工程根目录
 - Python 虚拟环境：`env/venv-虚拟环境/Scripts/python.exe`（依赖已装齐，直接用该解释器完整路径执行）
 
 ## 四、启动方式
+
+### AI 顾问 Key 配置（DEEPSEEK_API_KEY —— 克隆后跑通 AI 投顾的唯一必配项）
+
+AI 能力由 8091 调用 **DeepSeek 的 OpenAI 兼容接口**（模型默认 `deepseek-chat`）实现。
+Key 从 **系统环境变量** 读取（项目内无 .env 文件、代码不落盘，因此不会被 git 提交）；
+8080/8001 不需要 Key。
+
+1. **获取 Key**：注册 [DeepSeek 开放平台](https://platform.deepseek.com) → 「API Keys」页
+   创建，得到 `sk-...` 形式的 Key（账户需有余额或免费额度）。
+2. **写入环境变量**（三选一）：
+   - Windows 永久（推荐）：`setx DEEPSEEK_API_KEY "sk-你的Key"`（对新开的终端生效），
+     或「系统设置 → 高级系统设置 → 环境变量 → 用户变量」新建；
+   - Windows 仅当前终端：PowerShell `$env:DEEPSEEK_API_KEY="sk-你的Key"`，
+     并在**同一终端**里启动 8091（子进程继承父终端环境）；
+   - macOS / Linux：`export DEEPSEEK_API_KEY="sk-你的Key"`（写进 `~/.zshrc` / `~/.bashrc` 持久化）。
+   - 兼容回落：也支持原工程变量名 `AI_AGENT_API_KEY`（`DEEPSEEK_API_KEY` 优先）。
+3. **重启 8091**：Key 是服务启动时的快照，改完环境变量必须**重启 8091** 才生效
+   （已运行的进程不会热加载）。
+4. **自检**：登录前端（admin/123456 或注册）向 AI 投顾提问一句即验证；Key 未配置/无效时
+   8091 日志出现 `llm completion failed`（DeepSeek 返回 401），前端表现为回答失败。
+5. **换模型/供应商**（可选）：`AI_AGENT_MODEL`（如 `deepseek-reasoner`）、
+   `AI_AGENT_BASE_URL`（任何 OpenAI 兼容接口），均为环境变量，同样重启生效。
+
+> 内部令牌 `LGHJ_INTERNAL_API_TOKEN`（8091 调 8080 内部接口用）：**双方默认留空 = 不校验**，
+> 克隆后不配置也能跑；如需启用，两个服务的该变量保持一致即可。
 
 **一键启动（推荐）**：双击 `启动三服务-run-all-services.bat`（三个命令行窗口分别运行三服务，
 含 `LGHJ_INTERNAL_API_TOKEN` 环境变量；停止用 `停止三服务-stop-all-services.bat`）。
@@ -133,7 +165,22 @@ cd lghj-python
 `POST chat`、`POST chat_stream`（文本流）。统一响应体 `Response{code:"0000", info, data}`。
 litellm 走 OpenAI 兼容协议调 DeepSeek（环境变量 `DEEPSEEK_API_KEY`）；工具
 `querySimTradeProfile` / `queryRealtimeMarket` 经 `X-Internal-Token` 调 8080
-`/api/internal/*`。同 userId 的会话幂等复用。
+`/api/internal/*`。同 (agentId, userId) 的会话幂等复用。另含多个**本工程扩展接口**
+（原 Java 无）：`GET /api/v1/trace`（会话执行轨迹：run_start/llm_call/transfer/
+tool/agent_text 五种事件）、`GET /api/v1/agent_team`（团队结构）、历史会话
+`history_list/history_messages/history_session`（MySQL 持久化）、个人知识库
+`kb_upload/kb_list/kb_doc` + 检索工具 `queryKnowledgeBase`；6 个专家智能体注册为
+可独立对话 agent。供 AI 投顾终端 agent-web（8502，马维斯式布局：管家团队侧栏 /
+实时思考可视化 / 历史会话 / 知识库）与 Streamlit 前端的状态灯可视化使用。
+
+### streamlit-web（Streamlit 前端，8501）
+
+同花顺风格交易终端（原 Vue 前端的替代）：行情/K线/分时/预测/新闻、模拟交易、自选、
+社区、管理端，契约与原前端一致。另含**本工程扩展**的马维斯式 AI 投顾体验：侧栏
+「管家团队」（队长+6 专家点击单独对话）/「个人知识库」（上传 txt/md，投顾可检索
+引用）/「历史对话」（MySQL 持久化、可滑动回看续聊）+ 账户卡片固定左下角；AI 投顾
+页发问后实时显示思考过程（右上角"N 位管家工作中"指示 + 管家卡片条状态灯 +
+点击下钻思考面板）。依赖 8091 扩展接口，不可用时自动降级。
 
 **扩展：多模型选择（cc-switch 风格，2026-11 新增，非原 Java）**——用户在前端「模型设置」页
 自配多个 OpenAI 兼容提供商（DeepSeek/通义千问/Kimi/GLM/OpenAI/自定义）并一键切换：
@@ -156,4 +203,5 @@ litellm 走 OpenAI 兼容协议调 DeepSeek（环境变量 `DEEPSEEK_API_KEY`）
 详见 `tests/文件清单-file-manifest.md` 与 `tests/联调报告-integration-report.md`：
 68 条 pytest 契约用例覆盖 55/55 可测 API（100%），含跨服务链路（8001 分时→8080、
 8091 工具→8080 内部 API）与真实 LLM 调用；联调修复 2 个服务缺陷（分时取数超时、
-画像接口 Decimal.divide），两轮全量 68/68 通过。
+画像接口 Decimal.divide），两轮全量 68/68 通过。后增 Agent 流程可视化扩展接口
+用例 3 条（/api/v1/agent_team、/api/v1/trace 结构与工具调用记录），现共 71 条。

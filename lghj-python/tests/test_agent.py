@@ -31,8 +31,12 @@ def test_query_agent_config_list(client: httpx.Client):
         assert field in configs[0], f"配置项缺字段 {field}: {configs[0]}"
 
 
-def test_create_session_post_and_get_idempotent(client: httpx.Client, suffix: str):
-    """create_session（GET/POST 双契约）：返回 sessionId；同 userId 幂等复用同一会话。"""
+def test_create_session_post_and_get_fresh(client: httpx.Client, suffix: str):
+    """create_session（GET/POST 双契约）：每次调用都新建会话。
+
+    原 Java 为同 userId 幂等复用；本工程扩展历史落库后改为每次新建，
+    否则多轮「新建对话」都折进同一历史行（标题停在首问、列表无新增）。
+    """
     r = client.get(f"{AGENT}/api/v1/query_ai_agent_config_list")
     agent_id = r.json()["data"][0]["agentId"]
     user_id = f"f7sess_{suffix}"
@@ -44,15 +48,16 @@ def test_create_session_post_and_get_idempotent(client: httpx.Client, suffix: st
     session_id = body["data"]["sessionId"]
     assert isinstance(session_id, str) and session_id, "应返回 sessionId"
 
-    # POST 再次创建（同 userId）→ 幂等
+    # POST 再次创建 → 新会话（每次新建，配合「新建对话」语义）
     r = client.post(f"{AGENT}/api/v1/create_session", json={"agentId": agent_id, "userId": user_id})
-    assert r.json()["data"]["sessionId"] == session_id, "同 userId 应幂等复用会话"
+    second_id = r.json()["data"]["sessionId"]
+    assert second_id and second_id != session_id, "每次 create_session 应新建会话"
 
     # GET 契约
     r = client.get(f"{AGENT}/api/v1/create_session", params={"agentId": agent_id, "userId": user_id})
     assert r.status_code == 200
     assert_response_ok(r.json())
-    assert r.json()["data"]["sessionId"] == session_id, "GET 与 POST 应返回同一会话"
+    assert r.json()["data"]["sessionId"], "GET 契约同样应返回 sessionId"
 
 
 def test_create_session_bad_agent_id(client: httpx.Client, suffix: str):
@@ -213,3 +218,154 @@ def test_chat_stream_nonempty(client: httpx.Client, suffix: str):
             chunks.append(chunk)
     body = "".join(chunks)
     assert body.strip(), "SSE/文本流不应为空"
+
+
+# ====================== 扩展接口：Agent 流程可视化（trace / agent_team） ======================
+
+def test_agent_team_endpoint(client: httpx.Client):
+    """GET /api/v1/agent_team：团队结构 = 队长 + 6 专家（含职能描述）+ 本地工具名。"""
+    agent_id = client.get(f"{AGENT}/api/v1/query_ai_agent_config_list").json()["data"][0]["agentId"]
+    r = client.get(f"{AGENT}/api/v1/agent_team", params={"agentId": agent_id})
+    assert r.status_code == 200
+    body = r.json()
+    assert_response_ok(body)
+    team = body["data"]
+    assert team["supervisor"]["name"] == "InvestmentAdvisorSupervisor"
+    assert {e["name"] for e in team["experts"]} == {
+        "MarketAnalysisAgent", "QuantTechnicalAgent", "PersonalTradeProfileAgent",
+        "RiskAssessmentAgent", "PortfolioAdviceAgent", "ComplianceDisclosureAgent",
+    }, f"应有 6 个专家: {team['experts']}"
+    for e in team["experts"]:
+        assert e.get("description"), f"专家职能描述不应为空: {e}"
+    assert {"querySimTradeProfile", "queryRealtimeMarket"} <= set(team["tools"])
+
+
+def test_trace_endpoint_structure(client: httpx.Client, suffix: str):
+    """chat 后 GET /api/v1/trace：事件列表结构（run_start 边界 + agent_text + 公共字段与合法 type）。"""
+    agent_id = client.get(f"{AGENT}/api/v1/query_ai_agent_config_list").json()["data"][0]["agentId"]
+    user_id = f"f7trace_{suffix}"
+    r = client.post(f"{AGENT}/api/v1/create_session", json={"agentId": agent_id, "userId": user_id})
+    session_id = r.json()["data"]["sessionId"]
+
+    r = client.post(f"{AGENT}/api/v1/chat",
+                    json={"agentId": agent_id, "userId": user_id, "sessionId": session_id,
+                          "message": "请用一句话介绍你自己，不要调用任何工具。"},
+                    timeout=180.0)
+    assert_response_ok(r.json())
+
+    r = client.get(f"{AGENT}/api/v1/trace",
+                   params={"agentId": agent_id, "userId": user_id, "sessionId": session_id})
+    assert r.status_code == 200
+    body = r.json()
+    assert_response_ok(body)
+    events = body["data"]
+    assert isinstance(events, list) and events, "trace 不应为空"
+    assert events[0]["type"] == "run_start", f"首事件应为 run_start: {events[0]}"
+    assert any(e["type"] == "agent_text" for e in events), "应记录最终文本输出"
+    for e in events:
+        for field in ("seq", "ts", "type", "agent"):
+            assert field in e, f"轨迹事件缺公共字段 {field}: {e}"
+        assert e["type"] in ("run_start", "llm_call", "transfer", "tool", "agent_text"), \
+            f"非法事件类型: {e}"
+
+
+def test_trace_records_tool_call(client: httpx.Client, trader_user: dict, suffix: str):
+    """画像类问题的 trace 应记录 querySimTradeProfile 工具调用（断言放宽，LLM 行为有波动）。
+
+    真实 LLM 可能经 transfer 转交专家后调工具，也可能由 Supervisor 直接调用
+    （工具挂在共享 ChatModel 上，两条路径均合法），故 transfer 不做硬断言。
+    """
+    agent_id = client.get(f"{AGENT}/api/v1/query_ai_agent_config_list").json()["data"][0]["agentId"]
+    user_key = str(trader_user["id"])  # 前端语义：String(info.id)
+    r = client.post(f"{AGENT}/api/v1/create_session", json={"agentId": agent_id, "userId": user_key})
+    session_id = r.json()["data"]["sessionId"]
+    r = client.post(f"{AGENT}/api/v1/chat",
+                    json={"agentId": agent_id, "userId": user_key, "sessionId": session_id,
+                          "message": "请调用工具查询我的模拟交易画像，并说明我是否有交易记录。"},
+                    timeout=180.0)
+    assert_response_ok(r.json())
+
+    r = client.get(f"{AGENT}/api/v1/trace",
+                   params={"agentId": agent_id, "userId": user_key, "sessionId": session_id})
+    events = r.json()["data"]
+    tool_events = [e for e in events if e["type"] == "tool" and e.get("name") == "querySimTradeProfile"]
+    assert tool_events, f"trace 应记录 querySimTradeProfile 工具调用: {[e['type'] for e in events]}"
+    assert tool_events[0].get("args", {}).get("userId") == user_key, "工具入参应记录 userId"
+    assert tool_events[0].get("durationMs") is not None, "工具调用应记录耗时"
+    # transfer 出现时结构必须合法（目标专家名非空），但不强制发生
+    for e in events:
+        if e["type"] == "transfer":
+            assert e.get("name"), f"transfer 事件应记录目标专家: {e}"
+
+
+# ====================== 扩展接口：专家独立对话 / 历史 / 知识库（原 Java 无） ======================
+
+def test_expert_chat_and_history_persisted(client: httpx.Client, suffix: str):
+    """专家可独立对话（agentId=专家名建会话+chat）→ 历史落库（history_list/history_messages）。"""
+    agent_id = "QuantTechnicalAgent"
+    user_id = f"f7expert_{suffix}"
+    r = client.post(f"{AGENT}/api/v1/create_session", json={"agentId": agent_id, "userId": user_id})
+    assert r.status_code == 200
+    body = r.json()
+    assert_response_ok(body), f"专家建会话应成功: {body}"
+    session_id = body["data"]["sessionId"]
+
+    r = client.post(f"{AGENT}/api/v1/chat",
+                    json={"agentId": agent_id, "userId": user_id, "sessionId": session_id,
+                          "message": "请用一句话解释什么是均线。"},
+                    timeout=180.0)
+    assert r.status_code == 200
+    body = r.json()
+    assert_response_ok(body)
+    assert (body["data"]["content"] or "").strip(), "专家 chat 内容不应为空"
+
+    # 历史落库：列表含该会话（标题取首条提问），消息 ≥ 2 条（user+assistant）
+    r = client.get(f"{AGENT}/api/v1/history_list", params={"userId": user_id})
+    assert_response_ok(r.json())
+    sessions = r.json()["data"]
+    hit = next((s for s in sessions if s["sessionId"] == session_id), None)
+    assert hit is not None, f"历史列表应含该会话: {sessions}"
+    assert hit["agentId"] == agent_id
+    assert hit["title"], "会话标题应取首条提问"
+
+    r = client.get(f"{AGENT}/api/v1/history_messages", params={"sessionId": session_id})
+    assert_response_ok(r.json())
+    messages = r.json()["data"]
+    assert len(messages) >= 2, f"应至少落库 user+assistant 两条消息: {messages}"
+    assert messages[0]["role"] == "user"
+    assert messages[-1]["role"] == "assistant"
+    assert "trace" in messages[-1], "assistant 消息应附执行轨迹"
+
+    # 清理：删除历史会话
+    r = client.delete(f"{AGENT}/api/v1/history_session",
+                      params={"sessionId": session_id, "userId": user_id})
+    assert_response_ok(r.json())
+    assert r.json()["data"]["deleted"] is True
+
+
+def test_kb_upload_list_delete(client: httpx.Client, suffix: str):
+    """知识库全流程：上传 txt/md → 列表可见 → 删除（逻辑删除）。"""
+    user_id = f"f7kb_{suffix}"
+    filename = f"测试纪律-{suffix}.md"
+    r = client.post(f"{AGENT}/api/v1/kb_upload",
+                    data={"userId": user_id},
+                    files={"file": (filename, "第一条：止损幅度不超过8%。".encode("utf-8"),
+                                    "text/markdown")})
+    assert r.status_code == 200
+    body = r.json()
+    assert_response_ok(body)
+    assert body["data"]["docId"] > 0
+    assert body["data"]["charCount"] > 0
+
+    r = client.get(f"{AGENT}/api/v1/kb_list", params={"userId": user_id})
+    assert_response_ok(r.json())
+    docs = r.json()["data"]
+    assert len(docs) == 1 and docs[0]["title"] == f"测试纪律-{suffix}", f"列表应含刚上传文档: {docs}"
+
+    doc_id = docs[0]["id"]
+    r = client.delete(f"{AGENT}/api/v1/kb_doc", params={"docId": doc_id, "userId": user_id})
+    assert_response_ok(r.json())
+    assert r.json()["data"]["deleted"] is True
+
+    r = client.get(f"{AGENT}/api/v1/kb_list", params={"userId": user_id})
+    assert r.json()["data"] == [], "删除后列表应为空"

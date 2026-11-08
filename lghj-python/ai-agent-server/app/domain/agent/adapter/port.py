@@ -41,3 +41,18 @@ class ModelConfigPort(ABC):
     def fetch_user_config(self, user_id: str) -> dict | None:
         """查询用户当前激活的模型配置；失败/未配置返回 None。"""
         raise NotImplementedError
+
+
+class KbSearchPort(ABC):
+    """知识库检索端口（本工程扩展，原 Java 无）：个人知识库的标题列举与内容检索。"""
+
+    @abstractmethod
+    def list_titles(self, user_id: str, limit: int = 10) -> list[str]:
+        """列举用户知识库文档标题（注入对话上下文用）；失败返回空列表。"""
+        raise NotImplementedError
+
+    @abstractmethod
+    def search(self, user_id: str, query: str, limit: int = 5) -> list[dict]:
+        """按关键词检索用户文档，返回 [{title, snippet, score}]；失败返回空列表。"""
+        raise NotImplementedError
+        raise NotImplementedError

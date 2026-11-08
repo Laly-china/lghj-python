@@ -14,12 +14,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.agent.adapter.port import MarketDataPort, SimTradeProfilePort
+from app.domain.agent.adapter.port import KbSearchPort, MarketDataPort, SimTradeProfilePort
 from app.domain.agent.service.armory.runtime import ToolSpec
 
 # 原 Java InvestmentTradeProfileMcpServerConfig 中的两个本地 MCP bean 名（yml local.name 引用）
 INVESTMENT_TRADE_PROFILE_MCP = "investmentTradeProfileMcp"
 MARKET_REALTIME_MCP = "marketRealtimeMcp"
+# 本工程扩展的第三个本地工具 bean 名（知识库检索，原 Java 无）
+KNOWLEDGE_BASE_MCP = "knowledgeBaseMcp"
 
 
 # ====================== 工具一：查询模拟交易画像 ======================
@@ -120,15 +122,77 @@ def build_query_realtime_market_tool(port: MarketDataPort) -> ToolSpec:
     )
 
 
+def build_knowledge_base_tool(kb_port: "KbSearchPort | None") -> ToolSpec | None:
+    """构造 queryKnowledgeBase 工具（本工程扩展，原 Java 无）。
+
+    检索当前用户上传到个人知识库的文档；kb_port 未注入时返回 None（不注册）。
+    """
+
+    if kb_port is None:
+        return None
+
+    def handler(args: dict[str, Any]) -> dict[str, Any]:
+        args = args or {}
+        user_id = str(args.get("userId") or "")
+        query = str(args.get("query") or "")
+        # 1. 参数校验：用户ID / 检索词为空
+        if not user_id.strip():
+            return {"success": False, "message": "缺少当前用户ID，无法检索个人知识库。"}
+        if not query.strip():
+            return {"success": False, "message": "缺少检索关键词，无法检索个人知识库。"}
+        # 2. 检索（端口层实现，失败由端口/存储层抛出）
+        try:
+            results = kb_port.search(user_id.strip(), query.strip(), limit=5)
+        except Exception:  # noqa: BLE001 检索异常降级为失败结果
+            return {"success": False, "message": "知识库检索失败，可能是存储不可用。"}
+        # 3. 无命中
+        if not results:
+            return {"success": False, "message": "知识库中没有与该关键词相关的内容。"}
+        # 4. 成功：返回标题+片段（截断防止撑爆上下文）
+        clipped = [
+            {"title": r["title"], "snippet": r["snippet"][:300]} for r in results
+        ]
+        return {"success": True, "message": "OK", "results": clipped}
+
+    return ToolSpec(
+        name="queryKnowledgeBase",
+        description=(
+            "检索当前用户上传到个人知识库的文档内容（按关键词返回相关段落）。"
+            "当用户提到'我的知识库''我上传的资料/文档''根据我给的资料'等问题时必须调用。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "检索关键词，从用户问题中提取的主题词或短语。",
+                },
+                "userId": {
+                    "type": "string",
+                    "description": "当前对话用户ID。必须使用系统上下文中的当前用户ID，不要编造。",
+                },
+            },
+            "required": ["query", "userId"],
+        },
+        handler=handler,
+    )
+
+
 def build_local_tool_registry(
     market_data_port: MarketDataPort,
     sim_trade_profile_port: SimTradeProfilePort,
+    kb_search_port: "KbSearchPort | None" = None,
 ) -> dict[str, list[ToolSpec]]:
-    """本地工具注册表：bean 名 -> 工具列表（对应原 Java 两个 @Bean("xxxMcp") ToolCallbackProvider）。
+    """本地工具注册表：bean 名 -> 工具列表（对应原 Java @Bean("xxxMcp") ToolCallbackProvider）。
 
-    装配链 ChatModelNode 依据 yml tool-mcp-list 中的 local.name 从这里取工具。
+    装配链 ChatModelNode 依据 yml tool-mcp-list 中的 local.name 从这里取工具；
+    knowledgeBaseMcp 为本工程扩展（原 yml 未引用，装配时手动并入 ChatModel 工具列表）。
     """
-    return {
+    registry: dict[str, list[ToolSpec]] = {
         INVESTMENT_TRADE_PROFILE_MCP: [build_query_sim_trade_profile_tool(sim_trade_profile_port)],
         MARKET_REALTIME_MCP: [build_query_realtime_market_tool(market_data_port)],
     }
+    kb_tool = build_knowledge_base_tool(kb_search_port)
+    if kb_tool is not None:
+        registry[KNOWLEDGE_BASE_MCP] = [kb_tool]
+    return registry

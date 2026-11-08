@@ -25,3 +25,12 @@ lghj-python/prediction-server/data/cache/
 deploy-服务器部署/
 *.tar.gz
 *.sql.gz
+
+# ===== NiceGUI 运行时会话存储 =====
+.nicegui/
+
+# ===== IDE / 工具误生成的杂物 =====
+.idea/
+.dsh-write-probe.tmp
+pyproject.toml
+uv.lock
