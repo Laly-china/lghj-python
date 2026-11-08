@@ -28,7 +28,7 @@ from app.domain.agent.adapter.model.valobj import (
     AiAgentRegisterVO,
 )
 from app.domain.agent.service.armory.factory import DynamicContext
-from app.domain.agent.service.armory.model_client import LiteLlmClient
+from app.domain.agent.service.armory.model_client import LiteLlmClient, RoutingLlmClient
 from app.domain.agent.service.armory.runtime import (
     ChatModel,
     InMemoryRunner,
@@ -104,11 +104,21 @@ class AiApiNode(AbstractArmoryNode):
 
 
 class ChatModelNode(AbstractArmoryNode):
-    """构建 ChatModel（照抄原 Java ChatModelNode：本地 MCP 工具 + skills 工具挂载到默认 options）。"""
+    """构建 ChatModel（照抄原 Java ChatModelNode：本地 MCP 工具 + skills 工具挂载到默认 options）。
 
-    def __init__(self, agent_node: "AgentNode", settings: Settings) -> None:
+    扩展：客户端外包一层 RoutingLlmClient（按用户路由自配模型提供商，
+    cc-switch 风格多模型选择）；config_port 为 None 时行为与原实现一致。
+    """
+
+    def __init__(
+        self,
+        agent_node: "AgentNode",
+        settings: Settings,
+        model_config_port: Any | None = None,
+    ) -> None:
         self._agent_node = agent_node
         self._settings = settings
+        self._model_config_port = model_config_port
 
     def do_apply(self, command: ArmoryCommandEntity, ctx: DynamicContext) -> AiAgentRegisterVO | None:
         logger.info("Ai Agent 装配操作 - ChatModelNode")
@@ -148,6 +158,9 @@ class ChatModelNode(AbstractArmoryNode):
             completions_path=str(ai_api_cfg.get("completionsPath") or "/v1/chat/completions"),
             api_key=api_key,
         )
+        # 扩展：包一层按用户路由的客户端（用户自配模型 > 装配默认）
+        if self._model_config_port is not None:
+            client = RoutingLlmClient(default_client=client, config_port=self._model_config_port)
         ctx.chatModel = ChatModel(client=client, tools=tools)
         return None
 
@@ -428,8 +441,13 @@ def build_armory_chain(
     factory: Any,
     settings: Settings,
     local_tool_registry: dict[str, list[ToolSpec]] | None,
+    model_config_port: Any | None = None,
 ) -> AbstractArmoryNode:
-    """构建装配链并绑定到工厂（等价于原 Java 各节点 @Resource 互相注入 + 工厂持有 RootNode）。"""
+    """构建装配链并绑定到工厂（等价于原 Java 各节点 @Resource 互相注入 + 工厂持有 RootNode）。
+
+    model_config_port 为扩展参数（多模型选择）：传入 ModelConfigPort 实现后，
+    ChatModel 构建的默认客户端会外包 RoutingLlmClient 按用户路由。
+    """
     runner_node = RunnerNode(factory)
     supervisor_node = SupervisorAgentNode(None)  # type: ignore[arg-type]
     loop_node = LoopAgentNode(None)  # type: ignore[arg-type]
@@ -443,7 +461,7 @@ def build_armory_chain(
     sequential_node._workflow_node = workflow_node
 
     agent_node = AgentNode(workflow_node)
-    chat_model_node = ChatModelNode(agent_node, settings)
+    chat_model_node = ChatModelNode(agent_node, settings, model_config_port=model_config_port)
     chat_model_node.set_local_registry(local_tool_registry)
     ai_api_node = AiApiNode(chat_model_node)
     root = RootNode(ai_api_node)

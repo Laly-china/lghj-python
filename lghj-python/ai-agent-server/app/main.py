@@ -23,7 +23,7 @@ from fastapi import FastAPI
 
 from app.config import Settings, load_settings
 from app.config_loader import load_agent_config_properties
-from app.domain.agent.adapter.port import MarketDataPort, SimTradeProfilePort
+from app.domain.agent.adapter.port import MarketDataPort, ModelConfigPort, SimTradeProfilePort
 from app.domain.agent.service.armory.armory_service import ArmoryService
 from app.domain.agent.service.armory.factory import DefaultArmoryFactory
 from app.domain.agent.service.armory.nodes import build_armory_chain
@@ -31,7 +31,7 @@ from app.domain.agent.service.armory.runtime import ToolSpec
 from app.domain.agent.service.chat_service import ChatService
 from app.domain.agent.service.expert_team_service import ExpertTeamService
 from app.domain.agent.service.matter.local_tools import build_local_tool_registry
-from app.infrastructure.adapter.http_ports import HttpMarketDataPort, HttpSimTradeProfilePort
+from app.infrastructure.adapter.http_ports import HttpMarketDataPort, HttpModelConfigPort, HttpSimTradeProfilePort
 from app.trigger.http.agent_controller import router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -45,13 +45,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ---- infrastructure 端口（对应原 Java -app 模块 adapter/port 的 HTTP 实现类）----
     market_data_port: MarketDataPort = HttpMarketDataPort(settings)
     sim_trade_profile_port: SimTradeProfilePort = HttpSimTradeProfilePort(settings)
+    # 扩展端口（多模型选择）：按 userId 拉取用户自配的当前模型提供商
+    model_config_port: ModelConfigPort = HttpModelConfigPort(settings)
 
     # ---- matter 本地工具注册表（对应原 Java 两个本地 MCP ToolCallbackProvider bean）----
     local_tool_registry: dict[str, list[ToolSpec]] = build_local_tool_registry(market_data_port, sim_trade_profile_port)
 
     # ---- 装配工厂 + 装配链（对应原 Java DefaultArmoryFactory + 各 Node @Resource 注入）----
     factory = DefaultArmoryFactory()
-    build_armory_chain(factory, settings, local_tool_registry)
+    build_armory_chain(factory, settings, local_tool_registry, model_config_port=model_config_port)
 
     # ---- 装配配置（对应 spring.config.import 的 agent yml）----
     properties = load_agent_config_properties(settings)

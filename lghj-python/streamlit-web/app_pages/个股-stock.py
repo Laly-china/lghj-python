@@ -24,6 +24,9 @@ with st.container(horizontal=True, horizontal_alignment="left"):
         st.rerun()
 
 symbol = st.session_state.get("current_symbol", "sh600519").strip() or "sh600519"
+# 规范为带市场前缀格式：行情页/自选页存的是裸代码（行情接口拿不到市场），
+# 交易页与本页默认值带前缀（自选接口只认裸代码）——统一后再拆分使用
+symbol = api.normalize_symbol(symbol)
 market, code = api.split_symbol(symbol)
 
 # ---------------- 实时行情头部（5 秒自刷新） ----------------
@@ -36,20 +39,20 @@ def live_quote() -> None:
 
 live_quote()
 
-# 加/移自选
+# 加/移自选（后端契约：symbol 为 6 位裸代码，与 stock_basic.symbol 一致）
 if st.session_state.get("token"):
     watch_symbols = {w.get("symbol") for w in api.optional_list()}
-    in_watch = symbol in watch_symbols
+    in_watch = code in watch_symbols
     col_a, col_b = st.columns([1, 6])
     with col_a:
         if in_watch:
             if st.button("移除自选", icon=":material/star:"):
-                ok, msg = api.optional_remove(symbol)
+                ok, msg = api.optional_remove(code)
                 st.toast(msg, icon=":material/check_circle:" if ok else ":material/error:")
                 st.rerun()
         else:
             if st.button("加自选", icon=":material/star_border:"):
-                ok, msg = api.optional_add(symbol)
+                ok, msg = api.optional_add(code)
                 st.toast(msg, icon=":material/check_circle:" if ok else ":material/error:")
                 st.rerun()
 
@@ -99,7 +102,7 @@ if tab_n.open:
         with st.container(border=True):
             st.markdown(
                 f"**{n.get('title', '')}**　"
-                f"<span style='color:#8B949E;font-size:12px'>"
+                f"<span style='color:#6B7480;font-size:12px'>"
                 f"{n.get('source', '')} · {n.get('publishTime', '')}</span>",
                 unsafe_allow_html=True,
             )

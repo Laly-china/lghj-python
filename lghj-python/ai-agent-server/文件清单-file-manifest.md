@@ -45,7 +45,7 @@ Java→Python DDD 复现。原 Java 工程：`lghj-web-dist.tar/ai-agent-scaffoi
 
 | 文件 | 对应原 Java | 说明 |
 | --- | --- | --- |
-| `domain/agent/adapter/port.py` | `adapter/port/MarketDataPort.java`、`SimTradeProfilePort.java` | 领域出端口接口（行情/画像） |
+| `domain/agent/adapter/port.py` | `adapter/port/MarketDataPort.java`、`SimTradeProfilePort.java` | 领域出端口接口（行情/画像）；**扩展 `ModelConfigPort`**（按 userId 取用户自配模型，非原 Java） |
 | `domain/agent/adapter/model/valobj.py` | `model/valobj/AiAgentConfigTableVO.java`、`AiAgentRegisterVO.java`、`enums/AgentTypeEnum.java`、`properties/AiAgentAutoConfigProperties.java` | 值对象：配置表/注册表/装配类型枚举/装配属性 |
 | `domain/agent/adapter/model/entity.py` | `model/entity/ArmoryCommandEntity.java`、`ChatCommandEntity.java` | 实体：装配命令、多模态对话命令 |
 | `domain/agent/service/chat_service.py` | `service/chat/ChatService.java`、`IChatService.java` | 对话服务：会话复用（内存 Map userId→sessionId）、阻塞/流式消息、交易画像注入（仅 investment-advisor，上限 6000 字符超长加 `...[truncated]`） |
@@ -53,14 +53,14 @@ Java→Python DDD 复现。原 Java 工程：`lghj-web-dist.tar/ai-agent-scaffoi
 | `domain/agent/service/armory/factory.py` | `armory/factory/DefaultArmoryFactory.java` | 装配工厂 + DynamicContext + 智能体注册表（原 Java 用 Spring 容器，此处线程安全字典） |
 | `domain/agent/service/armory/nodes.py` | `armory/node/RootNode/AiApiNode/ChatModelNode/AgentNode/AgentWorkflowNode/RunnerNode.java` 及 `node/workflow/*`（4 个工作流节点） | 装配树：Root→AiApi→ChatModel→Agent→AgentWorkflow→Runner，路由 loop/parallel/sequential/supervisor |
 | `domain/agent/service/armory/runtime.py` | `com.google.adk`（Event/Content/Part/Session/InMemoryRunner/BaseAgent/LlmAgent/LoopAgent/ParallelAgent/SequentialAgent） | ADK 语义的轻量运行时：会话服务、事件流、transfer_to_agent 层级编排、工具调用循环（MAX_TOOL_ROUNDS=10） |
-| `domain/agent/service/armory/model_client.py` | `AiApiNode`（OpenAiApi）+ `ChatModelNode`（OpenAiChatModel）+ `AgentNode`（SpringAI 适配器） | litellm 客户端（OpenAI 兼容协议调 DeepSeek），api_base 由 base-url + completions-path 推导 |
+| `domain/agent/service/armory/model_client.py` | `AiApiNode`（OpenAiApi）+ `ChatModelNode`（OpenAiChatModel）+ `AgentNode`（SpringAI 适配器） | litellm 客户端（OpenAI 兼容协议调 DeepSeek），api_base 由 base-url + completions-path 推导；**扩展 `RoutingLlmClient`**（多模型选择：按 userId 经 ModelConfigPort 取用户激活配置，20s TTL 缓存、按配置指纹复用客户端、上限 64；无配置/异常回落装配默认客户端） |
 | `domain/agent/service/matter/local_tools.py` | `armory/matter/mcp/server/InvestmentTradeProfileMcpService.java`、`MarketRealtimeMcpService.java`、`InvestmentTradeProfileMcpServerConfig.java` | 本地工具：querySimTradeProfile / queryRealtimeMarket，工具描述、参数说明、错误文案照抄原 Java 注解；注册表 bean 名 investmentTradeProfileMcp / marketRealtimeMcp |
 
 ## 6. app/infrastructure/ 基础设施层（对应 `-infrastructure` 模块 + `-app` 模块端口实现）
 
 | 文件 | 对应原 Java | 说明 |
 | --- | --- | --- |
-| `infrastructure/adapter/http_ports.py` | `-app` 模块 `cn/feng/adapter/port/HttpMarketDataPort.java`、`HttpSimTradeProfilePort.java`、`config/LghjClientProperties.java` | httpx 实现：GET `/api/internal/market/realtime?market&code&recentNewsSize&includeMinute`、GET `/api/internal/sim-trade/profile?userId`，token 非空时带头 `X-Internal-Token`，任何异常降级返回 "" |
+| `infrastructure/adapter/http_ports.py` | `-app` 模块 `cn/feng/adapter/port/HttpMarketDataPort.java`、`HttpSimTradeProfilePort.java`、`config/LghjClientProperties.java` | httpx 实现：GET `/api/internal/market/realtime?market&code&recentNewsSize&includeMinute`、GET `/api/internal/sim-trade/profile?userId`，token 非空时带头 `X-Internal-Token`，任何异常降级返回 ""；**扩展 `HttpModelConfigPort`**：GET `/api/internal/model-config?userId`，失败/未配置返回 None |
 
 > 原 `-infrastructure` 模块只有 package-info 占位（无实现类），HTTP 实现位于 `-app` 模块，故此处与 `-app` 对应。
 

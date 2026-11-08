@@ -73,6 +73,7 @@
 | `user_position.py` | 用户持仓表 user_position（对应 entity/UserPosition.java，含乐观锁 version） |
 | `account_flow.py` | 资金流水表 account_flow（对应 entity/AccountFlow.java，仅建模） |
 | `user_stock_follow.py` | 用户自选股表 user_stock_follow（对应 entity/UserStockFollow.java，唯一键 user_id+stock_id） |
+| `user_model_config.py` | **扩展表（非原 Java）**：用户自配大模型配置 user_model_config（cc-switch 风格多模型选择，唯一键 user_id+name，is_active 同用户至多一条为 1，api_key 不外显明文） |
 
 ## app/pojo/dto/ 请求对象
 
@@ -112,6 +113,7 @@
 | `stock_basic_mapper.py` | 股票表查询：按代码/批量/LIKE 搜索/批量插入/计数（对应 mapper/StockBasicMapper.java；search_like 为原 ES boolQuery 的 MySQL LIKE 替代） |
 | `stock_manage_mapper.py` | **管理端股票表数据访问（任务C）**：keyword 分页（symbol/name LIKE 或 + create_time 倒序）/按代码非空更新（对应 StockServiceImpl.pageQuery/updateByCode 语义） |
 | `user_stock_follow_mapper.py` | 自选股表：计数/按用户查询/插入/删除（对应 mapper/UserStockFollowMapper.java） |
+| `user_model_config_mapper.py` | **扩展（非原 Java）**：用户模型配置表按用户列表/按 user+name 查/查激活/插入/清激活位/删除 |
 | `trade_order_mapper.py` | 委托单表：插入/按主键查/按主键更新（MP NOT_NULL 字段策略语义）/用户订单列表/未完成订单（状态 1、2）/管理端分页（对应 mapper/TradeOrderMapper.java + TradeServiceImpl、TradeManageController、OrderRecoveryTask 内联查询） |
 | `trade_deal_mapper.py` | 成交记录表：插入/用户成交列表/管理端分页（对应 mapper/TradeDealMapper.java + TradeServiceImpl 内联查询） |
 | `sim_account_mapper.py` | 模拟账户表：按用户查询/插入（对应 mapper/SimAccountMapper.java） |
@@ -129,6 +131,7 @@
 | `real_time_stock_service.py` | 实时行情（腾讯 ~ 分割，字段 1/2/3/4/5/6/31/32）、历史K线（新浪 scale=240/1200/7200 + 腾讯 day/week/month 降级，Redis 24h）、东方财富新闻 JSONP、分时（调 8001 预测服务 + 锁防击穿）（对应 RealTimeStockServiceImpl 全部方法） |
 | `stock_service.py` | Excel 导入：列解析/代码归一化/市场类型判定/日期解析/100 条分批入库（对应 StockServiceImpl.importStockBasic + listener/StockExcelListener） |
 | `user_stock_follow_service.py` | 自选股增删查：Redis Set `user:stock:follow:{userId}` 与 DB 双写、列表带行情（对应 UserStockFollowServiceImpl） |
+| `user_model_config_service.py` | **扩展（非原 Java）**：多模型配置业务——列表（api_key 打码 `前2****后4`）、按名称 upsert 保存（新建默认非激活）、删除、激活（先清同用户其它激活位）、`get_active_plain`（明文 key，仅供 internal API） |
 | `blog_service.py` | **博客业务（任务C Phase 3+4）**：发布（粉丝 feed:ZSet 推送收件箱，score=毫秒时间戳）、点赞（Redis ZSet blog:liked:{id} 成员切换 + liked 原子增减）、我的/指定用户/热度分页、详情（补作者昵称头像 + isLike，游客为 null）、Feed 流收件箱分页（zrevrange + ORDER BY FIELD 保序）、删除（逻辑删除 + 清理点赞 ZSet 与全部 feed:*）、编辑（仅 title/images + update_time）、管理端 page/删除/详情（对应 BlogServiceImpl 全部方法 + admin/BlogManageController 对泛型方法的调用） |
 | `blog_comments_service.py` | **博客评论业务（任务C Phase 3+4）**：新增（二级校验父评论存在/同博客/状态正常）、列表（一级分页倒序 + 批量二级正序 + 树形 VO + 用户信息 + isLiked）、点赞（Redis Set blog:comment:liked:{id} 成员切换 + liked 绝对值回写，照抄原非原子语义）、删除（逻辑删除 + 一级级联删二级 + 清点赞缓存）、管理端 page（可选 blogId）/删除不级联（对应 BlogCommentsServiceImpl 全部方法） |
 | `follow_service.py` | **关注业务（任务C Phase 3）**：关注/取关（DB 与 Redis Set follows:{userId} 双写，无重复关注校验照抄）、是否关注（count 查询，对应 FollowServiceImpl） |
@@ -156,6 +159,7 @@
 | `user/stock_search_controller.py` | GET /api/user/stock/search（LIKE 搜索）、/api/user/stock/data（K线，period 默认 D）（对应 user/StockSearchController.java） |
 | `user/real_time_stock_controller.py` | GET /api/user/realtime/quote、/realtime/news（recentN 默认 10）、/realtime/minute（对应 user/RealTimeStockController.java） |
 | `user/optional_stock_controller.py` | POST /api/user/optional/add、/optional/remove（symbol 走 query string）、GET /optional/list（对应 user/OptionalStockController.java） |
+| `user/model_config_controller.py` | **扩展（非原 Java，cc-switch 风格多模型选择）**：POST /api/user/model-config/save（json body，同名覆盖）、/delete?name=、/activate?name=、GET /list（api_key 打码）；不存在→60001、保存失败→60002、缺字段→10001/10002 |
 | `user/blog.py` | **讨论区博客路由（任务C Phase 3）**：POST /api/user/blog 发布、PUT /like/{id} 点赞、GET /query/of/me、/query/hot（放行）、/query/of/user（放行，id 必传）、/query/of/follow（Feed 流）、/query/{id}、DELETE /delete/{id}、PUT /update；路由声明顺序保证字面路径先于 /query/{id} 匹配（对应 user/BlogController.java） |
 | `user/comments.py` | **博客评论区路由（任务C Phase 3）**：POST /api/user/blog/comments/add、GET /list（放行，blogId 必传/pageNum=1/pageSize=10）、POST /like/{commentId}、DELETE /delete/{commentId}（对应 user/BlogCommentsController.java） |
 | `user/follow.py` | **关注路由（任务C Phase 3）**：PUT /api/user/follow/{id}/{isFollow}、GET /or/not/{id}（对应 user/FollowController.java） |
@@ -169,6 +173,7 @@
 | `internal/__init__.py` | **internal 分组包声明（任务C Phase 4）**：对应原 controller/internal 包 |
 | `internal/market_realtime.py` | **内部行情聚合路由（任务C Phase 4，供 AI Agent 8091 调用）**：GET /api/internal/market/realtime?code&market&recentNewsSize&includeMinute，返回 {market,code,queryTime,quote,minuteData,news}（字段顺序照原 MarketRealtimeData 声明）；market 缺省按代码 5/6/9→sh 否则 sz 推断；recentNewsSize 截断 [0,20]；鉴权 X-Internal-Token（LGHJ_INTERNAL_API_TOKEN 环境变量，默认空=不校验，配置非空必须匹配，与 Agent 客户端 http_ports.py 严格对齐）；**不走 JWT 拦截器**（原 WebMvcConfiguration 仅挂 admin/user 两组，internal 由控制器自行校验）；code 参数缺失→SYSTEM_ERROR、空白→"stock code required"（对应 internal/MarketRealtimeController.java） |
 | `internal/sim_trade_profile.py` | **内部交易画像路由（任务C Phase 4，供 AI Agent 8091 调用）**：GET /api/internal/sim-trade/profile?userId=，鉴权同 market_realtime；无交易用户返回字段齐全的空画像（behaviorTags=[NO_TRADE_RECORD]）；userId 缺失→SYSTEM_ERROR（对应 internal/SimTradeProfileController.java） |
+| `internal/model_config.py` | **扩展（非原 Java，供 8091 RoutingLlmClient 按用户路由模型）**：GET /api/internal/model-config?userId=，鉴权同 market_realtime；返回激活配置 {name,baseUrl,apiKey(明文),model,completionsPath} 或 null；非数字 userId（测试账号）直接返回 null；userId 缺失→SYSTEM_ERROR |
 | `admin/trade.py` | **管理端交易管理路由（任务B）**：GET /api/admin/trade/order/page 与 /api/admin/trade/deal/page 分页查询（pageNum/pageSize 默认 1/10，可选 userId/symbol，每页上限 1000；响应体对齐 MyBatis-Plus Page 序列化 {records,total,size,current,pages}）（对应 admin/TradeManageController.java） |
 
 ## app/task/ 定时任务包

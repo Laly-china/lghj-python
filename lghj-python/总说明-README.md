@@ -135,6 +135,13 @@ litellm 走 OpenAI 兼容协议调 DeepSeek（环境变量 `DEEPSEEK_API_KEY`）
 `querySimTradeProfile` / `queryRealtimeMarket` 经 `X-Internal-Token` 调 8080
 `/api/internal/*`。同 userId 的会话幂等复用。
 
+**扩展：多模型选择（cc-switch 风格，2026-11 新增，非原 Java）**——用户在前端「模型设置」页
+自配多个 OpenAI 兼容提供商（DeepSeek/通义千问/Kimi/GLM/OpenAI/自定义）并一键切换：
+配置存 8080 新表 `user_model_config`（`/api/user/model-config/*`，api_key 打码回显）；
+8091 的 `RoutingLlmClient` 聊天时按 userId 经 internal API `/api/internal/model-config`
+取激活配置（20s 缓存），未配置/异常时回落上述默认 DeepSeek 客户端。新表 SQL 已追加到
+`sql/数据库初始化-init.sql`，**已有库需单独执行该表的建表语句**（勿整文件重跑，会 DROP 数据）。
+
 ### prediction-server（股价预测服务，Phase 6，端口 8001）
 
 详见 `prediction-server/文件清单-file-manifest.md`。**裸 JSON 响应**（无包装）：

@@ -13,6 +13,11 @@ ui.require_login()
 user = st.session_state.get("user") or {}
 user_id = int(user.get("id") or 0)
 
+# 当前模型徽标（多模型选择：用户自配 > 系统默认；在「模型设置」页切换）
+_cfg = api.model_config_active()
+_model_txt = f"{_cfg.get('name')}（{_cfg.get('model')}）" if _cfg else "系统默认（deepseek-chat）"
+st.caption(f"当前模型：{_model_txt}　·　可在「模型设置」页切换")
+
 agents = api.agent_config_list()
 if not agents:
     st.warning("智能体服务不可用或未配置（请确认 8091 已启动）")
@@ -52,8 +57,8 @@ def expert_team_dialog() -> None:
         with col_a:
             st.markdown(
                 f"**{m['name']}**　"
-                f"<span style='color:#8B949E;font-size:12px'>{key}</span><br>"
-                f"<span style='color:#8B949E;font-size:12px'>{m.get('desc', '')}</span>",
+                f"<span style='color:#6B7480;font-size:12px'>{key}</span><br>"
+                f"<span style='color:#6B7480;font-size:12px'>{m.get('desc', '')}</span>",
                 unsafe_allow_html=True,
             )
         with col_b:
@@ -118,7 +123,7 @@ if agent_id == "investment-advisor":
             st.markdown("**专家团**（6 位固定角色 · 权重可调）")
             if members:
                 wtxt = "　".join(
-                    f"<span style='font-size:12px;color:#8B949E'>{m['name']}</span>"
+                    f"<span style='font-size:12px;color:#6B7480'>{m['name']}</span>"
                     f"<span style='font-size:12px;color:#E64545;font-weight:600'>"
                     f" {m['weight']}%</span>"
                     for m in members

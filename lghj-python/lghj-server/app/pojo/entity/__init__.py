@@ -1,7 +1,8 @@
-"""实体包：init.sql 全部 15 张表的 SQLAlchemy 2.0 模型。
+"""实体包：init.sql 全部 15 张表的 SQLAlchemy 2.0 模型 + 扩展表 UserModelConfig。
 
 对应复现原 Java pojo/entity 包（原 Java 14 个实体 + 按 init.sql 补齐的
 RolePermission，共 15 张表）。后续任务的交易/社区模块只 import 不重建。
+UserModelConfig 为 Python 复现扩展功能表（用户自配大模型配置，非原 Java 表）。
 """
 
 from app.pojo.entity.account_flow import AccountFlow
@@ -19,6 +20,7 @@ from app.pojo.entity.trade_order import TradeOrder
 from app.pojo.entity.user import User
 from app.pojo.entity.user_position import UserPosition
 from app.pojo.entity.user_role import UserRole
+from app.pojo.entity.user_model_config import UserModelConfig
 from app.pojo.entity.user_stock_follow import UserStockFollow
 
 __all__ = [
@@ -35,6 +37,7 @@ __all__ = [
     "TradeDeal",
     "TradeOrder",
     "User",
+    "UserModelConfig",
     "UserPosition",
     "UserRole",
     "UserStockFollow",

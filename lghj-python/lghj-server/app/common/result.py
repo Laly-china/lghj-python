@@ -65,6 +65,10 @@ class ErrorEnum(Enum):
     ACCOUNT_UPDATE_FAIL = (50004, "更新账户失败，可能存在并发操作")
     ACCOUNT_NOT_FOUND = (50005, "用户账户不存在")
 
+    # ====================== 模型配置管理（60000开头，扩展功能） ======================
+    MODEL_CONFIG_NOT_FOUND = (60001, "模型配置不存在")
+    MODEL_CONFIG_SAVE_FAIL = (60002, "保存模型配置失败")
+
     def __init__(self, code: int, msg: str) -> None:
         self.code = code
         self.msg = msg

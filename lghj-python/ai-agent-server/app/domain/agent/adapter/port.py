@@ -28,3 +28,16 @@ class SimTradeProfilePort(ABC):
     def query_profile_json(self, user_id: str) -> str:
         """查询用户模拟交易画像 JSON；失败返回空串。"""
         raise NotImplementedError
+
+
+class ModelConfigPort(ABC):
+    """用户模型配置端口（Python 复现扩展功能，非原 Java）。
+
+    供 RoutingLlmClient 按 userId 拉取用户自配的当前模型提供商
+    （cc-switch 风格多模型选择）；失败返回 None 走默认客户端。
+    """
+
+    @abstractmethod
+    def fetch_user_config(self, user_id: str) -> dict | None:
+        """查询用户当前激活的模型配置；失败/未配置返回 None。"""
+        raise NotImplementedError

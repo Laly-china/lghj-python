@@ -14,13 +14,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 
 from app.config import Settings
-from app.domain.agent.adapter.port import MarketDataPort, SimTradeProfilePort
+from app.domain.agent.adapter.port import MarketDataPort, ModelConfigPort, SimTradeProfilePort
 
 logger = logging.getLogger(__name__)
 
@@ -99,3 +100,26 @@ class HttpSimTradeProfilePort(_BaseHttpPort, SimTradeProfilePort):
             {"userId": user_id},
         )
         return self._get_text(url)
+
+
+class HttpModelConfigPort(_BaseHttpPort, ModelConfigPort):
+    """用户模型配置端口 HTTP 实现（Python 复现扩展功能，非原 Java）。
+
+    对应主服务 GET /api/internal/model-config?userId=（X-Internal-Token）。
+    主服务不可达 / 响应异常 / 用户未配置 → 返回 None（走默认客户端）。
+    """
+
+    def fetch_user_config(self, user_id: str) -> dict | None:
+        if not user_id or not user_id.strip():
+            return None
+        url = _build_url(self._base_url, "/api/internal/model-config", {"userId": user_id})
+        text = self._get_text(url)
+        if not text:
+            return None
+        try:
+            body = json.loads(text)
+        except ValueError:
+            logger.warning("model-config 响应非 JSON: %s", text[:120])
+            return None
+        data = body.get("data") if isinstance(body, dict) else None
+        return data if isinstance(data, dict) and data.get("apiKey") else None

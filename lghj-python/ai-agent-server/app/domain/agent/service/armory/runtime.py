@@ -147,9 +147,18 @@ class ToolSpec:
 # ====================== 模型客户端协议（对应 Spring AI ChatModel） ======================
 
 class LlmClient(Protocol):
-    """LLM 客户端协议：输入 OpenAI 消息与工具 schema，输出 assistant 消息 dict。"""
+    """LLM 客户端协议：输入 OpenAI 消息与工具 schema，输出 assistant 消息 dict。
 
-    def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> dict[str, Any]:
+    user_id 为扩展可选参数（多模型选择：RoutingLlmClient 按用户路由提供商；
+    单租户实现可忽略该参数）。
+    """
+
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
         """阻塞式补全，返回 OpenAI assistant 消息 dict（含可能的 tool_calls）。"""
         ...
 
@@ -161,9 +170,14 @@ class ChatModel:
     client: LlmClient
     tools: list[ToolSpec] = field(default_factory=list)
 
-    def chat(self, messages: list[dict[str, Any]], extra_tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        extra_tools: list[dict[str, Any]] | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
         schemas = self.tool_schemas() + (extra_tools or [])
-        return self.client.chat(messages, schemas or None)
+        return self.client.chat(messages, schemas or None, user_id=user_id)
 
     def tool_schemas(self) -> list[dict[str, Any]]:
         return [t.to_openai_schema() for t in self.tools]
@@ -268,7 +282,7 @@ class InMemoryRunner:
             messages = self._build_messages(agent, session)
             # 有直接子智能体时挂载 transfer_to_agent（对齐 ADK sub_agents 自动转交能力）
             extra_tools = [transfer_tool().to_openai_schema()] if agent.sub_agents else None
-            assistant_msg = agent.model.chat(messages, extra_tools)
+            assistant_msg = agent.model.chat(messages, extra_tools, user_id=session.user_id)
 
             calls = _extract_tool_calls(assistant_msg)
             session.messages.append(assistant_msg)

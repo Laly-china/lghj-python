@@ -11,14 +11,14 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-# 涨红跌绿（深色背景下的高可读色）
+# 涨红跌绿（白色背景下的高可读色）
 UP = "#FF5B5B"        # 涨
 DOWN = "#00C08B"      # 跌
-FLAT = "#8B949E"      # 平
+FLAT = "#6B7480"      # 平
 AVG_LINE = "#F0B90B"  # 分时均价线（THS 黄）
-TEXT = "#E8EAED"
-GRID = "#2A3138"
-AXIS_LABEL = "#8B949E"
+TEXT = "#1F2329"
+GRID = "#E2E6EB"
+AXIS_LABEL = "#6B7480"
 
 
 def require_login() -> None:
@@ -113,7 +113,7 @@ def _base_axis(extra: dict | None = None) -> dict:
     axis = {
         "axisLine": {"lineStyle": {"color": GRID}},
         "axisLabel": {"color": AXIS_LABEL, "fontSize": 11},
-        "splitLine": {"lineStyle": {"color": "#1C2228"}},
+        "splitLine": {"lineStyle": {"color": "#EDF0F3"}},
     }
     if extra:
         axis.update(extra)
@@ -123,8 +123,8 @@ def _base_axis(extra: dict | None = None) -> dict:
 def _tooltip() -> dict:
     return {
         "trigger": "axis",
-        "axisPointer": {"type": "cross", "label": {"backgroundColor": "#1A2026"}},
-        "backgroundColor": "#171C21",
+        "axisPointer": {"type": "cross", "label": {"backgroundColor": "#4E5969"}},
+        "backgroundColor": "#FFFFFF",
         "borderColor": GRID,
         "textStyle": {"color": TEXT, "fontSize": 12},
     }
@@ -343,7 +343,7 @@ def fund_metric_row(items: list[dict], title: str, subtitle: str = "") -> None:
                 tags = it.get("tags") or []
                 if tags:
                     tag_html = " ".join(
-                        f"<span style='background:rgba(230,69,69,0.15);color:#FF7B7B;"
+                        f"<span style='background:rgba(230,69,69,0.12);color:#C62F35;"
                         f"font-size:11px;padding:1px 6px;border-radius:8px'>{t}</span>"
                         for t in tags
                     )

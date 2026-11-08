@@ -34,6 +34,7 @@ trade_pages = [
 ]
 smart_pages = [
     st.Page("app_pages/AI投顾-advisor.py", title="AI 投顾", icon=":material/smart_toy:"),
+    st.Page("app_pages/模型设置-model-settings.py", title="模型设置", icon=":material/psychology:"),
     st.Page("app_pages/社区-community.py", title="社区", icon=":material/forum:"),
 ]
 admin_pages = [
@@ -62,7 +63,7 @@ def render_user_card() -> None:
     with st.container(border=True):
         st.markdown(
             f"**{user.get('username', '')}**　"
-            f"<span style='color:#8B949E;font-size:12px'>{user.get('identityDesc', '')}</span>",
+            f"<span style='color:#6B7480;font-size:12px'>{user.get('identityDesc', '')}</span>",
             unsafe_allow_html=True,
         )
         if st.button("退出登录", icon=":material/logout:", use_container_width=True):
@@ -75,7 +76,7 @@ with st.sidebar:
         "<div style='display:flex;align-items:center;gap:8px;padding:4px 0 10px 0'>"
         "<span style='font-size:22px'>📈</span>"
         "<span style='font-size:17px;font-weight:700;color:#E64545'>量股化金</span>"
-        "<span style='font-size:11px;color:#8B949E'>模拟炒股终端</span></div>",
+        "<span style='font-size:11px;color:#6B7480'>模拟炒股终端</span></div>",
         unsafe_allow_html=True,
     )
     if st.session_state.get("token"):

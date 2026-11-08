@@ -122,6 +122,27 @@ def split_symbol(symbol: str) -> tuple[str, str]:
     return "", s
 
 
+def normalize_symbol(symbol: str) -> str:
+    """规范为带市场前缀的 8 位格式（sh/sz/bj + 6 位代码）。
+
+    行情接口与 8001 分时/K线用前缀格式；裸 6 位代码按首位推断市场
+    （6/9→sh，4/8→bj，其余→sz）；已带合法前缀则原样返回（统一小写）。
+    """
+    s = (symbol or "").strip().lower()
+    if len(s) == 8 and s[:2] in ("sh", "sz", "bj"):
+        return s
+    if len(s) == 6 and s.isdigit():
+        # 北交所：43/83/87/88 开头与 920 段新代码；沪市：6 开头与 900 段 B 股；其余深市
+        if s[:2] == "92" or s[0] in "48":
+            prefix = "bj"
+        elif s[0] in "69":
+            prefix = "sh"
+        else:
+            prefix = "sz"
+        return prefix + s
+    return s
+
+
 def make_symbol(market: str, code: str) -> str:
     return f"{(market or '').lower()}{code}"
 
@@ -501,6 +522,46 @@ def expert_team_reset(user_id: int) -> dict | None:
     """重置为默认均分权重。"""
     ok, data, _i = agent_api("POST", "/api/v1/expert_team/reset", params={"userId": str(user_id)})
     return data if ok else None
+
+
+# ---------------- 模型配置（8080 扩展：cc-switch 风格多模型选择） ----------------
+
+def model_config_list() -> list[dict]:
+    """当前用户配置列表（api_key 已由后端打码）。"""
+    ok, data, _m = main_api("GET", "/api/user/model-config/list")
+    return data if ok and isinstance(data, list) else []
+
+
+def model_config_active() -> dict | None:
+    """当前激活的配置（无则 None，表示走系统默认模型）。"""
+    return next((c for c in model_config_list() if c.get("isActive")), None)
+
+
+def model_config_save(name: str, base_url: str, api_key: str, model: str,
+                      completions_path: str = "") -> tuple[bool, str]:
+    """保存配置（同名覆盖更新），返回 (ok, 提示)。"""
+    ok, _d, msg = main_api(
+        "POST",
+        "/api/user/model-config/save",
+        json_body={
+            "name": name,
+            "baseUrl": base_url,
+            "apiKey": api_key,
+            "model": model,
+            "completionsPath": completions_path,
+        },
+    )
+    return ok, msg or ("保存成功" if ok else "保存失败")
+
+
+def model_config_delete(name: str) -> tuple[bool, str]:
+    ok, _d, msg = main_api("POST", "/api/user/model-config/delete", params={"name": name})
+    return ok, msg or ("已删除" if ok else "删除失败")
+
+
+def model_config_activate(name: str) -> tuple[bool, str]:
+    ok, _d, msg = main_api("POST", "/api/user/model-config/activate", params={"name": name})
+    return ok, msg or ("已切换" if ok else "切换失败")
 
 
 # ---------------- 管理端（userType=3） ----------------
