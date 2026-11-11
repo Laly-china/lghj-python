@@ -83,7 +83,7 @@ Java→Python DDD 复现。原 Java 工程：`lghj-web-dist.tar/ai-agent-scaffoi
 
 | 文件 | 对应原文件 | 说明 |
 | --- | --- | --- |
-| `投顾装配-investment-advisor-supervisor.yml` | `agent/investment_advisor_supervisor.yml` | 主装配：6 专家 Agent（MarketAnalysis/QuantTechnical/PersonalTradeProfile/RiskAssessment/PortfolioAdvice/ComplianceDisclosure）+ **立项扩展专家**（SentimentAnalysis 舆情，yml 内「立项扩展」标记）+ InvestmentAdvisorSupervisor 层级编排，instruction 七段式文本原文照抄；支持 `${VAR:default}` 环境占位 |
+| `投顾装配-investment-advisor-supervisor.yml` | `agent/investment_advisor_supervisor.yml` | 主装配：6 专家 Agent（MarketAnalysis/QuantTechnical/PersonalTradeProfile/RiskAssessment/PortfolioAdvice/ComplianceDisclosure）+ **立项扩展专家**（SentimentAnalysis 舆情、EventAnalysis 事件，yml 内「立项扩展」标记，共用 queryStockNews）+ InvestmentAdvisorSupervisor 层级编排，instruction 七段式文本原文照抄；支持 `${VAR:default}` 环境占位 |
 | `投顾本地覆写-investment-advisor-supervisor-local.yml` | `agent/investment_advisor_supervisor_local.yml` | 本地可选覆写（问候语处理实验配置）；默认不加载（AGENT_CONFIG_LOCAL_ENABLED=true 开启）；原文件内含明文 api-key，出于安全未照抄，改为环境变量占位 |
 | `skills/investment-research/投研技能-investment-research-SKILL.md` | `agent/skills/investment-research/SKILL.md` | 投研技能说明（照抄），经 load_skill 工具加载（对应原 Java SkillsTool） |
 

@@ -83,6 +83,15 @@ ai:
                   输出应包含：舆情概览（偏多/偏空/中性）、媒体关注点归纳、代表性报道引用（注明时间与来源）、情绪面对投资决策的提示。
                   不要承诺收益，不要给出确定性预测；舆情结论需注明时效性（基于近期公开报道）。
                 output-key: sentiment_analysis
+              - name: EventAnalysisAgent   # 立项扩展：事件分析 Agent（申报书 8 类垂直投研之一）
+                description: 从新闻线索识别影响股价的驱动事件并评估影响方向与时效。
+                instruction: |
+                  你是事件分析师。根据用户提供的股票或行业问题，从新闻资讯中识别影响股价的驱动事件（政策监管、业绩公告、并购重组、行业变化、宏观事件等），评估每个事件的影响方向、力度与时效性。
+                  识别事件必须调用 queryStockNews 工具获取真实新闻作为线索；工具失败或无新闻时明确说明事件数据缺口，不要编造事件。
+                  输出应包含：事件清单（事件、类别、发生时间、来源）、影响评估（利好/利空/中性、预计持续时间）、后续观察点。
+                  你与舆情分析师的分工：舆情分析师看舆论倾向与情绪面，你看具体事实事件及其驱动逻辑；不要输出情绪面判断。
+                  不要承诺收益，不要给出确定性预测。
+                output-key: event_analysis
             agent-workflows:
               - type: supervisor
                 name: InvestmentAdvisorSupervisor
@@ -96,9 +105,11 @@ ai:
                   - PortfolioAdviceAgent：组合配置、仓位纪律和观察清单
                   - ComplianceDisclosureAgent：合规提示和免责声明
                   - SentimentAnalysisAgent：新闻舆情、舆论倾向和市场情绪面分析（立项扩展）
+                  - EventAnalysisAgent：从新闻识别驱动事件并评估影响方向与时效（立项扩展）
 
                   当用户提到“我的持仓、我的交易、模拟交易、交易记录、复盘、个性化、风险偏好、仓位建议”等内容时，先调度 PersonalTradeProfileAgent，并把画像结论用于风险评估和组合建议。
                   当用户提到“舆情、新闻、舆论、情绪、热度、市场情绪、大家怎么看”等内容时，调度 SentimentAnalysisAgent 分析情绪面。
+                  当用户提到“出了什么事、什么事件、利好利空、政策、公告、并购、消息面驱动”等内容时，调度 EventAnalysisAgent 做事件分析。
 
                   最终回复必须使用中文，结构包含：
                   1. 问题理解
@@ -119,5 +130,6 @@ ai:
                   - PortfolioAdviceAgent
                   - ComplianceDisclosureAgent
                   - SentimentAnalysisAgent   # 立项扩展：舆情分析
+                  - EventAnalysisAgent   # 立项扩展：事件分析
             runner:
               agent-name: InvestmentAdvisorSupervisor

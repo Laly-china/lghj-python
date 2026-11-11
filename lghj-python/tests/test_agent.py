@@ -235,6 +235,7 @@ def test_agent_team_endpoint(client: httpx.Client):
         "MarketAnalysisAgent", "QuantTechnicalAgent", "PersonalTradeProfileAgent",
         "RiskAssessmentAgent", "PortfolioAdviceAgent", "ComplianceDisclosureAgent",
         "SentimentAnalysisAgent",  # 立项扩展：舆情分析
+        "EventAnalysisAgent",  # 立项扩展：事件分析
     }, f"专家集合不符: {team['experts']}"
     for e in team["experts"]:
         assert e.get("description"), f"专家职能描述不应为空: {e}"

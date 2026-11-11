@@ -72,6 +72,12 @@ EXPERT_ROLES: list[dict] = [
         "desc": "分析个股新闻舆情、舆论倾向与市场情绪面",
         "outputKey": "sentiment_analysis",
     },
+    {
+        "key": "EventAnalysisAgent",
+        "name": "事件分析师",
+        "desc": "从新闻线索识别驱动事件并评估影响方向与时效",
+        "outputKey": "event_analysis",
+    },
 ]
 
 _ROLE_KEYS: set[str] = {r["key"] for r in EXPERT_ROLES}

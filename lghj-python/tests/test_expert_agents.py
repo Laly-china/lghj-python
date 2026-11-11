@@ -19,6 +19,7 @@ ORIGINAL_EXPERTS = {
 #: 已补齐的立项扩展专家（逐轮追加：R1 舆情 → R2 事件 → R3 资金流向）
 EXTENDED_EXPERTS = {
     "SentimentAnalysisAgent",
+    "EventAnalysisAgent",
 }
 
 

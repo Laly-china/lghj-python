@@ -431,6 +431,7 @@ AGENT_CARDS: dict[str, tuple[str, str, str]] = {
     "ComplianceDisclosureAgent": ("合规管家", "⚖️", "合规审查与免责声明"),
     # ---- 立项扩展专家（申报书 8 类垂直投研 Agent 补齐）----
     "SentimentAnalysisAgent": ("舆情管家", "📰", "新闻舆情·舆论倾向·市场情绪面"),
+    "EventAnalysisAgent": ("事件管家", "⚡", "新闻事件识别·利好利空·影响时效"),
 }
 
 
