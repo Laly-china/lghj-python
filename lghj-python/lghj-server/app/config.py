@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     stock_history_tencent_kline_url: str = "http://web.ifzq.gtimg.cn/appstock/app/kline/kline"
     realtime_quote_url: str = "http://qt.gtimg.cn/q="       # 原 StockConstant.GETREALTIMEQUOTEURL
     prediction_api_minute_url: str = "http://localhost:8001/minute/{symbol}"  # 原 UrlConstant.PREDICTION_API_MINUTE_URL
+    # 立项扩展：个股资金流（预测服务 /fundflow，供资金流向 Agent 的 internal 转发）
+    prediction_api_fundflow_url: str = "http://localhost:8001/fundflow/{symbol}"
 
     # ---------- A 股 Excel 数据路径（对应 StockServiceImpl.resolveExcelPath） ----------
     stock_excel_path: str = ""

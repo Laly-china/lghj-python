@@ -245,7 +245,7 @@ RootNode → AiApiNode → ChatModelNode → AgentNode → AgentWorkflowNode →
 
 - **模板方法模式**：`AbstractArmoryNode.apply()` → `do_apply()` + `get()` 路由下一节点（对齐原 Java `StrategyHandler.apply + router`）
 - **6 个专家 Agent**：MarketAnalysis / QuantTechnical / PersonalTradeProfile / RiskAssessment / PortfolioAdvice / ComplianceDisclosure
-- **立项扩展专家**（申报书 8 类垂直投研补齐，逐个落地）：SentimentAnalysis（舆情）、EventAnalysis（事件），共用工具 queryStockNews
+- **立项扩展专家**（申报书 8 类垂直投研补齐，全部落地）：SentimentAnalysis（舆情）、EventAnalysis（事件）共用 queryStockNews；CapitalFlow（资金流向）用 queryFundFlow（8001 采集 → 8080 internal 转发）
 - **supervisor 编排**：父智能体通过 `transfer_to_agent` 工具把控制权转交直接子智能体（对齐 ADK AutoFlow）；`MAX_TOOL_ROUNDS = 10` 防死循环
 - **运行时自研**：原系统用 `google-adk-java` + Spring AI；本工程**手写等价最小运行时**（避免 google-adk-python 与 fastapi/pydantic 版本冲突），`Event.stringify_content()` 对齐 ADK 语义
 

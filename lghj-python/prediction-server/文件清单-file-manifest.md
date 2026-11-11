@@ -55,9 +55,13 @@ prediction-server/
 │   ├── __init__.py                            # 包声明
 │   ├── collector.py                           # akshare 采集：分时/日线/交易日历，symbol 解析，
 │   │                                          #   CSV 缓存与日期失效策略、失败降级
+│   ├── fund_flow.py                           # 立项扩展：个股资金流采集（新浪主源 ssl_qsfx_lscjfb
+│   │                                          #   + 东财 stock_individual_fund_flow 回退，口径归一化，
+│   │                                          #   当日覆盖式缓存与失败降级；供 /fundflow 路由）
 │   └── cache/                                 # 采集数据本地缓存（自动生成，可整目录删除重建）
 │       ├── minute_{symbol}_{YYYYMMDD}.csv     #   分时缓存（按数据日期命名，当日复用）
 │       ├── daily_{symbol}.csv                 #   日线缓存（近 3 年，按最新日期判定失效）
+│       ├── fundflow_{symbol}.csv             #   资金流缓存（立项扩展：当日覆盖判定新鲜）
 │       └── trade_dates.csv                    #   交易日历缓存（30 天有效期）
 └── model/                                     # LSTM 模型（代码按路径引用，保留英文名）
     ├── __init__.py                            # 包声明

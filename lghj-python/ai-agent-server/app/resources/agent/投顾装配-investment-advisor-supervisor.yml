@@ -29,6 +29,8 @@ ai:
                     name: marketRealtimeMcp
                 - local:   # 立项扩展：个股新闻舆情（舆情/事件分析 Agent 数据源）
                     name: stockNewsMcp
+                - local:   # 立项扩展：个股资金流向（资金流向 Agent 数据源）
+                    name: fundFlowMcp
               tool-skills-list:
                 - type: resource
                   path: agent/skills/investment-research
@@ -92,6 +94,15 @@ ai:
                   你与舆情分析师的分工：舆情分析师看舆论倾向与情绪面，你看具体事实事件及其驱动逻辑；不要输出情绪面判断。
                   不要承诺收益，不要给出确定性预测。
                 output-key: event_analysis
+              - name: CapitalFlowAgent   # 立项扩展：资金流向 Agent（申报书 8 类垂直投研之一）
+                description: 分析个股主力资金、大中小单净流入趋势与资金面强弱。
+                instruction: |
+                  你是资金流向分析师。根据用户提供的股票问题，分析主力资金净流入/流出趋势、超大单与大单行为、
+                  资金面与股价走势的配合关系（如放量上涨伴随主力净流入为健康信号，缩量反弹主力流出需警惕）。
+                  分析资金流向必须调用 queryFundFlow 工具获取真实数据；工具失败或无数据时明确说明资金流数据缺口，不要编造数字。
+                  输出应包含：近几日主力净流入概览（金额与占比）、大单行为特征、资金面与价格趋势的配合判断、需要警惕的信号。
+                  不要承诺收益，不要给出确定性预测；资金流向仅反映成交结构，不构成买卖建议。
+                output-key: capital_flow_analysis
             agent-workflows:
               - type: supervisor
                 name: InvestmentAdvisorSupervisor
@@ -106,10 +117,12 @@ ai:
                   - ComplianceDisclosureAgent：合规提示和免责声明
                   - SentimentAnalysisAgent：新闻舆情、舆论倾向和市场情绪面分析（立项扩展）
                   - EventAnalysisAgent：从新闻识别驱动事件并评估影响方向与时效（立项扩展）
+                  - CapitalFlowAgent：主力资金、大中小单净流入与资金面强弱分析（立项扩展）
 
                   当用户提到“我的持仓、我的交易、模拟交易、交易记录、复盘、个性化、风险偏好、仓位建议”等内容时，先调度 PersonalTradeProfileAgent，并把画像结论用于风险评估和组合建议。
                   当用户提到“舆情、新闻、舆论、情绪、热度、市场情绪、大家怎么看”等内容时，调度 SentimentAnalysisAgent 分析情绪面。
                   当用户提到“出了什么事、什么事件、利好利空、政策、公告、并购、消息面驱动”等内容时，调度 EventAnalysisAgent 做事件分析。
+                  当用户提到“主力、资金流向、净流入、大单、资金面、资金进出”等内容时，调度 CapitalFlowAgent 分析资金面。
 
                   最终回复必须使用中文，结构包含：
                   1. 问题理解
@@ -131,5 +144,6 @@ ai:
                   - ComplianceDisclosureAgent
                   - SentimentAnalysisAgent   # 立项扩展：舆情分析
                   - EventAnalysisAgent   # 立项扩展：事件分析
+                  - CapitalFlowAgent   # 立项扩展：资金流向
             runner:
               agent-name: InvestmentAdvisorSupervisor

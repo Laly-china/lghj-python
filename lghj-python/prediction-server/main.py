@@ -47,6 +47,7 @@ from fastapi.responses import JSONResponse
 
 import data.collector as collector
 import data.fund_collector as fund_collector
+import data.fund_flow as fund_flow
 import data.stock_rank as stock_rank
 from model.predictor import PricePredictor, CheckpointNotFoundError, DEFAULT_CHECKPOINT
 
@@ -127,6 +128,31 @@ def minute(symbol: str):
         return JSONResponse(status_code=500,
                             content={"error": "internal_error", "msg": str(e)})
     return result["items"]
+
+
+@app.get("/fundflow/{symbol}")
+def fundflow(symbol: str, days: int = 5):
+    """
+    个股近 N 日资金流向（立项扩展：资金流向 Agent 数据源；主源新浪，东财回退，缓存降级）。
+
+    返回裸 JSON：{"symbol": "sh600519", "items": [
+        {"date","close","changePct","turnover","mainNetInflow","mainNetPct",
+         "superNetInflow","bigNetInflow","midNetInflow","smallNetInflow"}, ...]}
+    金额单位：元；最新交易日在前；days 默认 5，夹在 [1, 20]。
+    """
+    try:
+        return fund_flow.get_fund_flow(symbol, days)
+    except collector.InvalidSymbolError as e:
+        return JSONResponse(status_code=400,
+                            content={"error": "invalid_symbol", "msg": str(e)})
+    except collector.CollectorError as e:
+        logger.error("资金流采集失败 symbol=%s: %s", symbol, e)
+        return JSONResponse(status_code=502,
+                            content={"error": "fundflow_unavailable", "msg": str(e)})
+    except Exception as e:  # 兜底，避免 500 堆栈页
+        logger.exception("资金流接口异常 symbol=%s", symbol)
+        return JSONResponse(status_code=500,
+                            content={"error": "internal_error", "msg": str(e)})
 
 
 @app.get("/predict/{symbol}")

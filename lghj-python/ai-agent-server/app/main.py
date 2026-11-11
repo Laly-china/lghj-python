@@ -23,7 +23,7 @@ from fastapi import FastAPI
 
 from app.config import Settings, load_settings
 from app.config_loader import load_agent_config_properties
-from app.domain.agent.adapter.port import MarketDataPort, ModelConfigPort, SimTradeProfilePort
+from app.domain.agent.adapter.port import FundFlowPort, MarketDataPort, ModelConfigPort, SimTradeProfilePort
 from app.domain.agent.service.armory.armory_service import ArmoryService
 from app.domain.agent.service.armory.factory import DefaultArmoryFactory
 from app.domain.agent.service.armory.nodes import build_armory_chain
@@ -31,7 +31,7 @@ from app.domain.agent.service.armory.runtime import ToolSpec
 from app.domain.agent.service.chat_service import ChatService
 from app.domain.agent.service.expert_team_service import ExpertTeamService
 from app.domain.agent.service.matter.local_tools import build_local_tool_registry
-from app.infrastructure.adapter.http_ports import HttpMarketDataPort, HttpModelConfigPort, HttpSimTradeProfilePort
+from app.infrastructure.adapter.http_ports import HttpFundFlowPort, HttpMarketDataPort, HttpModelConfigPort, HttpSimTradeProfilePort
 from app.infrastructure.chat_store import DbKbSearchPort
 from app.infrastructure.database import ensure_tables
 from app.trigger.http.agent_controller import router
@@ -51,11 +51,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     model_config_port: ModelConfigPort = HttpModelConfigPort(settings)
     # 知识库检索端口（本工程扩展，MySQL 实现）
     kb_search_port = DbKbSearchPort()
+    # 立项扩展端口：个股资金流（资金流向 Agent 数据源，经主服务转发预测服务 8001）
+    fund_flow_port: FundFlowPort = HttpFundFlowPort(settings)
 
     # ---- matter 本地工具注册表（对应原 Java 两个本地 MCP ToolCallbackProvider bean；
-    #      另含本工程扩展的 knowledgeBaseMcp）----
+    #      另含本工程扩展的 knowledgeBaseMcp / stockNewsMcp / fundFlowMcp）----
     local_tool_registry: dict[str, list[ToolSpec]] = build_local_tool_registry(
-        market_data_port, sim_trade_profile_port, kb_search_port
+        market_data_port, sim_trade_profile_port, kb_search_port, fund_flow_port
     )
 
     # ---- 装配工厂 + 装配链（对应原 Java DefaultArmoryFactory + 各 Node @Resource 注入）----

@@ -79,3 +79,8 @@ def eastmoney_headers(keyword: str) -> dict[str, str]:
 def prediction_minute_url(symbol: str) -> str:
     """分时数据来源 URL（照抄 UrlConstant.PREDICTION_API_MINUTE_URL 的 {symbol} 替换）。"""
     return settings.prediction_api_minute_url.replace("{symbol}", symbol)
+
+
+def prediction_fundflow_url(symbol: str) -> str:
+    """个股资金流来源 URL（立项扩展：预测服务 /fundflow 的 {symbol} 替换）。"""
+    return settings.prediction_api_fundflow_url.replace("{symbol}", symbol)

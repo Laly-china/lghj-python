@@ -188,7 +188,7 @@ tool/agent_text 五种事件）、`GET /api/v1/agent_team`（团队结构）、�
 8091 的 `RoutingLlmClient` 聊天时按 userId 经 internal API `/api/internal/model-config`
 取激活配置（20s 缓存），未配置/异常时回落上述默认 DeepSeek 客户端。
 
-**扩展：立项垂直 Agent 补齐（2026-11，申报书「8 类垂直投研 Agent」要求）**——在原 6 专家基础上逐个补齐舆情分析 / 事件分析 / 资金流向：已落地 `SentimentAnalysisAgent`（舆情管家）与 `EventAnalysisAgent`（事件管家），共用工具 `queryStockNews`（复用东财新闻链路）。新增专家只需改装配 yml（agents + sub-agents + Supervisor 清单）与 `expert_team_service.EXPERT_ROLES`，运行时/权重/可视化自动适配。新表 SQL 已追加到
+**扩展：立项垂直 Agent 补齐（2026-11，申报书「8 类垂直投研 Agent」要求）**——在原 6 专家基础上逐个补齐舆情分析 / 事件分析 / 资金流向：已全部落地：`SentimentAnalysisAgent`（舆情管家）、`EventAnalysisAgent`（事件管家）共用工具 `queryStockNews`（复用东财新闻链路）；`CapitalFlowAgent`（资金管家）用工具 `queryFundFlow`（新数据链路：预测服务 8001 `/fundflow` 新浪主源+东财回退+CSV 缓存降级，主服务经 `/api/internal/fundflow` 转发）。新增专家只需改装配 yml（agents + sub-agents + Supervisor 清单）与 `expert_team_service.EXPERT_ROLES`，运行时/权重/可视化自动适配。新表 SQL 已追加到
 `sql/数据库初始化-init.sql`，**已有库需单独执行该表的建表语句**（勿整文件重跑，会 DROP 数据）。
 
 ### prediction-server（股价预测服务，Phase 6，端口 8001）

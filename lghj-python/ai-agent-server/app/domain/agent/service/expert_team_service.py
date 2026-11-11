@@ -78,6 +78,12 @@ EXPERT_ROLES: list[dict] = [
         "desc": "从新闻线索识别驱动事件并评估影响方向与时效",
         "outputKey": "event_analysis",
     },
+    {
+        "key": "CapitalFlowAgent",
+        "name": "资金流向分析师",
+        "desc": "分析主力资金、大中小单净流入趋势与资金面强弱",
+        "outputKey": "capital_flow_analysis",
+    },
 ]
 
 _ROLE_KEYS: set[str] = {r["key"] for r in EXPERT_ROLES}

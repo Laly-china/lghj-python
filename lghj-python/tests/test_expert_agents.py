@@ -20,6 +20,7 @@ ORIGINAL_EXPERTS = {
 EXTENDED_EXPERTS = {
     "SentimentAnalysisAgent",
     "EventAnalysisAgent",
+    "CapitalFlowAgent",
 }
 
 
@@ -77,3 +78,33 @@ def test_query_stock_news_tool_data_path():
     body = r.json()
     assert body["code"] == 200, body
     assert isinstance(body["data"].get("news"), list), body["data"]
+
+
+def test_query_fund_flow_tool_data_path():
+    """资金流工具数据链路（不经 LLM）：8080 internal fundflow 返回归一化字段。
+
+    数据源为 8001 /fundflow（新浪主源，正常网络下有真实数据；字段缺失视为失败）。
+    """
+    r = httpx.get(f"{MAIN}/api/internal/fundflow",
+                  params={"market": "sh", "code": "600519", "days": 3},
+                  headers={"X-Internal-Token": INTERNAL_TOKEN}, timeout=45)
+    body = r.json()
+    assert body["code"] == 200, body
+    data = body["data"]
+    assert data and data.get("symbol") == "sh600519", data
+    items = data.get("items") or []
+    assert items, "资金流应有至少 1 行数据"
+    first = items[0]
+    expected = {"date", "close", "changePct", "turnover", "mainNetInflow", "mainNetPct"}
+    assert expected <= set(first), first
+    # 最新交易日在前（倒序契约）
+    assert items[0]["date"] >= items[-1]["date"], items
+
+
+def test_query_fund_flow_auth():
+    """资金流 internal 端点鉴权：错误 token 不返回数据。"""
+    r = httpx.get(f"{MAIN}/api/internal/fundflow",
+                  params={"market": "sh", "code": "600519", "days": 1},
+                  headers={"X-Internal-Token": "wrong-token"}, timeout=30)
+    body = r.json()
+    assert body["code"] != 200, body

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.agent.adapter.port import KbSearchPort, MarketDataPort, SimTradeProfilePort
+from app.domain.agent.adapter.port import FundFlowPort, KbSearchPort, MarketDataPort, SimTradeProfilePort
 from app.domain.agent.service.armory.runtime import ToolSpec
 
 # 原 Java InvestmentTradeProfileMcpServerConfig 中的两个本地 MCP bean 名（yml local.name 引用）
@@ -24,6 +24,8 @@ MARKET_REALTIME_MCP = "marketRealtimeMcp"
 KNOWLEDGE_BASE_MCP = "knowledgeBaseMcp"
 # 立项扩展工具 bean 名：个股新闻舆情（供舆情/事件分析 Agent，复用行情聚合接口的 news 部分）
 STOCK_NEWS_MCP = "stockNewsMcp"
+# 立项扩展工具 bean 名：个股资金流向（供资金流向 Agent）
+FUND_FLOW_MCP = "fundFlowMcp"
 
 
 # ====================== 工具一：查询模拟交易画像 ======================
@@ -242,21 +244,85 @@ def build_query_stock_news_tool(port: MarketDataPort) -> ToolSpec:
     )
 
 
+def build_query_fund_flow_tool(port: FundFlowPort) -> ToolSpec:
+    """构造 queryFundFlow 工具（立项扩展：资金流向 Agent 数据源，原 Java 无）。
+
+    返回个股近 N 日资金流（主力/超大/大/中/小单净额与净占比），金额单位元。
+    """
+
+    def handler(args: dict[str, Any]) -> dict[str, Any]:
+        import json as _json
+
+        args = args or {}
+        raw_code = args.get("code") or ""
+        if not isinstance(raw_code, str) or not raw_code.strip():
+            return {"success": False, "message": "缺少股票代码，无法查询资金流向。"}
+
+        code = raw_code.strip()
+        raw_market = args.get("market")
+        market = raw_market.strip().lower() if isinstance(raw_market, str) and raw_market.strip() else _infer_market(code)
+        # days：默认 5，夹在 [1, 10]（足够判断趋势，控制上下文长度）
+        raw_days = args.get("days")
+        days = 5 if raw_days is None else max(1, min(int(raw_days), 10))
+
+        flow_json = port.query_fundflow_json(market, code, days)
+        if not flow_json or not flow_json.strip():
+            return {"success": False, "message": "未获取到资金流向数据，可能是数据源、主后端或股票代码不可用。"}
+        try:
+            body = _json.loads(flow_json)
+            items = (body.get("data") or {}).get("items") or []
+        except (ValueError, AttributeError):
+            return {"success": False, "message": "资金流向响应解析失败，请稍后重试。"}
+        if not items:
+            return {"success": False, "message": "该股票暂无资金流向数据。"}
+        return {"success": True, "message": "OK", "count": len(items), "fundFlow": items}
+
+    return ToolSpec(
+        name="queryFundFlow",
+        description=(
+            "查询A股个股近N日资金流向（主力/超大单/大单/中单/小单净流入金额与占比，最新交易日在前）。"
+            "分析主力资金动向、资金进出、大单行为时必须调用。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "A股股票代码，例如 600519、000001。不要带市场前缀。",
+                },
+                "market": {
+                    "type": "string",
+                    "description": "市场代码，上海填 sh，深圳填 sz。未知可不填，工具会根据股票代码推断。",
+                },
+                "days": {
+                    "type": "integer",
+                    "description": "返回最近交易日天数，默认5，最大10。",
+                },
+            },
+            "required": ["code"],
+        },
+        handler=handler,
+    )
+
+
 def build_local_tool_registry(
     market_data_port: MarketDataPort,
     sim_trade_profile_port: SimTradeProfilePort,
     kb_search_port: "KbSearchPort | None" = None,
+    fund_flow_port: "FundFlowPort | None" = None,
 ) -> dict[str, list[ToolSpec]]:
     """本地工具注册表：bean 名 -> 工具列表（对应原 Java @Bean("xxxMcp") ToolCallbackProvider）。
 
     装配链 ChatModelNode 依据 yml tool-mcp-list 中的 local.name 从这里取工具；
-    knowledgeBaseMcp 为本工程扩展（原 yml 未引用，装配时手动并入 ChatModel 工具列表）。
+    knowledgeBaseMcp / stockNewsMcp / fundFlowMcp 为本工程扩展。
     """
     registry: dict[str, list[ToolSpec]] = {
         INVESTMENT_TRADE_PROFILE_MCP: [build_query_sim_trade_profile_tool(sim_trade_profile_port)],
         MARKET_REALTIME_MCP: [build_query_realtime_market_tool(market_data_port)],
         STOCK_NEWS_MCP: [build_query_stock_news_tool(market_data_port)],
     }
+    if fund_flow_port is not None:
+        registry[FUND_FLOW_MCP] = [build_query_fund_flow_tool(fund_flow_port)]
     kb_tool = build_knowledge_base_tool(kb_search_port)
     if kb_tool is not None:
         registry[KNOWLEDGE_BASE_MCP] = [kb_tool]

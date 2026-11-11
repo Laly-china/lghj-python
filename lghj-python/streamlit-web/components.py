@@ -432,6 +432,7 @@ AGENT_CARDS: dict[str, tuple[str, str, str]] = {
     # ---- 立项扩展专家（申报书 8 类垂直投研 Agent 补齐）----
     "SentimentAnalysisAgent": ("舆情管家", "📰", "新闻舆情·舆论倾向·市场情绪面"),
     "EventAnalysisAgent": ("事件管家", "⚡", "新闻事件识别·利好利空·影响时效"),
+    "CapitalFlowAgent": ("资金管家", "💰", "主力资金·大中小单·资金面强弱"),
 }
 
 

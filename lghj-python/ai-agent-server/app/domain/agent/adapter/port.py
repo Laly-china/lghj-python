@@ -55,4 +55,15 @@ class KbSearchPort(ABC):
     def search(self, user_id: str, query: str, limit: int = 5) -> list[dict]:
         """按关键词检索用户文档，返回 [{title, snippet, score}]；失败返回空列表。"""
         raise NotImplementedError
+
+
+class FundFlowPort(ABC):
+    """个股资金流端口（立项扩展功能，非原 Java）。
+
+    供资金流向 Agent 的 queryFundFlow 工具取数；失败返回空串走工具失败口径。
+    """
+
+    @abstractmethod
+    def query_fundflow_json(self, market: str, code: str, days: int) -> str:
+        """查询个股近 N 日资金流 JSON 文本；失败返回空串。"""
         raise NotImplementedError

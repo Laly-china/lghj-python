@@ -21,7 +21,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 import httpx
 
 from app.config import Settings
-from app.domain.agent.adapter.port import MarketDataPort, ModelConfigPort, SimTradeProfilePort
+from app.domain.agent.adapter.port import FundFlowPort, MarketDataPort, ModelConfigPort, SimTradeProfilePort
 
 logger = logging.getLogger(__name__)
 
@@ -123,3 +123,21 @@ class HttpModelConfigPort(_BaseHttpPort, ModelConfigPort):
             return None
         data = body.get("data") if isinstance(body, dict) else None
         return data if isinstance(data, dict) and data.get("apiKey") else None
+
+
+class HttpFundFlowPort(_BaseHttpPort, FundFlowPort):
+    """个股资金流端口 HTTP 实现（立项扩展功能，非原 Java）。
+
+    对应主服务 GET /api/internal/fundflow?market&code&days（X-Internal-Token）。
+    任何失败返回空串（工具层转为失败口径）。
+    """
+
+    def query_fundflow_json(self, market: str, code: str, days: int) -> str:
+        if not code or not code.strip():
+            return ""
+        url = _build_url(
+            self._base_url,
+            "/api/internal/fundflow",
+            {"market": market, "code": code, "days": days},
+        )
+        return self._get_text(url)
