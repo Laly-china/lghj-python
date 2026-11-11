@@ -16,7 +16,7 @@ cd lghj-python/ai-agent-server
 
 应用启动（lifespan）时自动执行智能体装配：加载
 `app/resources/agent/投顾装配-investment-advisor-supervisor.yml` →
-AiApi → ChatModel（挂载本地工具 + skills）→ 6 专家 Agent → Supervisor 层级编排 → Runner，
+AiApi → ChatModel（挂载本地工具 + skills）→ 专家 Agent（原 6 + 立项扩展）→ Supervisor 层级编排 → Runner，
 注册 agentId=`investment-advisor`。
 
 ## 2. 环境变量（照抄原 Java application-dev.yml 占位符）

@@ -22,6 +22,8 @@ INVESTMENT_TRADE_PROFILE_MCP = "investmentTradeProfileMcp"
 MARKET_REALTIME_MCP = "marketRealtimeMcp"
 # 本工程扩展的第三个本地工具 bean 名（知识库检索，原 Java 无）
 KNOWLEDGE_BASE_MCP = "knowledgeBaseMcp"
+# 立项扩展工具 bean 名：个股新闻舆情（供舆情/事件分析 Agent，复用行情聚合接口的 news 部分）
+STOCK_NEWS_MCP = "stockNewsMcp"
 
 
 # ====================== 工具一：查询模拟交易画像 ======================
@@ -178,6 +180,68 @@ def build_knowledge_base_tool(kb_port: "KbSearchPort | None") -> ToolSpec | None
     )
 
 
+def build_query_stock_news_tool(port: MarketDataPort) -> ToolSpec:
+    """构造 queryStockNews 工具（立项扩展：舆情/事件分析 Agent 的新闻数据源，原 Java 无）。
+
+    复用行情聚合端口（includeMinute=False 只取资讯），解析出 data.news 单独返回，
+    避免舆情 Agent 在行情大 JSON 里捞新闻。
+    """
+
+    def handler(args: dict[str, Any]) -> dict[str, Any]:
+        import json as _json
+
+        args = args or {}
+        raw_code = args.get("code") or ""
+        if not isinstance(raw_code, str) or not raw_code.strip():
+            return {"success": False, "message": "缺少股票代码，无法查询新闻舆情。"}
+
+        code = raw_code.strip()
+        raw_market = args.get("market")
+        market = raw_market.strip().lower() if isinstance(raw_market, str) and raw_market.strip() else _infer_market(code)
+        # recentN：默认 10，夹在 [1, 20]
+        raw_n = args.get("recentN")
+        recent_n = 10 if raw_n is None else max(1, min(int(raw_n), 20))
+
+        market_json = port.query_realtime_market_json(market, code, recent_n, False)
+        if not market_json or not market_json.strip():
+            return {"success": False, "message": "未获取到新闻资讯，可能是资讯源、主后端或股票代码不可用。"}
+        try:
+            body = _json.loads(market_json)
+            news = (body.get("data") or {}).get("news") or []
+        except (ValueError, AttributeError):
+            return {"success": False, "message": "新闻资讯响应解析失败，请稍后重试。"}
+        if not news:
+            return {"success": False, "message": "该股票近期没有检索到相关新闻资讯。"}
+        return {"success": True, "message": "OK", "count": len(news), "news": news}
+
+    return ToolSpec(
+        name="queryStockNews",
+        description=(
+            "查询A股个股最近新闻资讯列表（标题、摘要、发布时间、来源、链接）。"
+            "分析市场舆情、舆论倾向、媒体热度，或从新闻中识别影响股价的事件时必须调用。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "A股股票代码，例如 600519、000001。不要带市场前缀。",
+                },
+                "market": {
+                    "type": "string",
+                    "description": "市场代码，上海填 sh，深圳填 sz。未知可不填，工具会根据股票代码推断。",
+                },
+                "recentN": {
+                    "type": "integer",
+                    "description": "返回新闻条数，默认10，最大20。",
+                },
+            },
+            "required": ["code"],
+        },
+        handler=handler,
+    )
+
+
 def build_local_tool_registry(
     market_data_port: MarketDataPort,
     sim_trade_profile_port: SimTradeProfilePort,
@@ -191,6 +255,7 @@ def build_local_tool_registry(
     registry: dict[str, list[ToolSpec]] = {
         INVESTMENT_TRADE_PROFILE_MCP: [build_query_sim_trade_profile_tool(sim_trade_profile_port)],
         MARKET_REALTIME_MCP: [build_query_realtime_market_tool(market_data_port)],
+        STOCK_NEWS_MCP: [build_query_stock_news_tool(market_data_port)],
     }
     kb_tool = build_knowledge_base_tool(kb_search_port)
     if kb_tool is not None:

@@ -125,7 +125,9 @@ def _submit_question(text: str) -> None:
 # ---------------- 顶栏：当前管家（新建对话在侧栏最顶部） ----------------
 
 _card_name, _icon, _duty = ui.agent_card(agent_id)
-_desc = _duty or ("全局投顾 · 调度 6 位专家" if agent_id == DEFAULT_AGENT else "")
+# 专家人数由管家卡片数推导（卡片含队长，故 -1）：立项扩展加专家时文案自动跟随
+_N_EXPERTS = len(ui.AGENT_CARDS) - 1
+_desc = _duty or (f"全局投顾 · 调度 {_N_EXPERTS} 位专家" if agent_id == DEFAULT_AGENT else "")
 
 st.markdown(
     f"<span style='font-size:22px'>{_icon}</span>　"
@@ -140,7 +142,7 @@ st.markdown(
 @st.dialog("专家团配置", width="large")
 def expert_team_dialog() -> None:
     st.caption(
-        "专家团由 6 位固定角色组成（人数与职责不可变更）。"
+        f"专家团由 {_N_EXPERTS} 位固定角色组成（人数与职责不可变更）。"
         "你可以调整每位专家的**意见权重**，AI 将按权重加权汇总，生成符合你个人预期的投资计划。"
         "权重合计须为 100%。"
     )
@@ -210,7 +212,7 @@ if agent_id == DEFAULT_AGENT:
     with st.container(border=True):
         left, right = st.columns([4, 1])
         with left:
-            st.markdown("**专家团**（6 位固定角色 · 权重可调）")
+            st.markdown(f"**专家团**（{_N_EXPERTS} 位固定角色 · 权重可调）")
             if _et_members:
                 _wtxt = "　".join(
                     f"<span style='font-size:12px;color:#6B7280'>{m['name']}</span>"

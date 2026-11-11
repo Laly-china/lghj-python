@@ -429,6 +429,8 @@ AGENT_CARDS: dict[str, tuple[str, str, str]] = {
     "RiskAssessmentAgent": ("风控管家", "🛡️", "风险识别与仓位风控边界"),
     "PortfolioAdviceAgent": ("组合管家", "🧩", "配置建议·仓位纪律·观察清单"),
     "ComplianceDisclosureAgent": ("合规管家", "⚖️", "合规审查与免责声明"),
+    # ---- 立项扩展专家（申报书 8 类垂直投研 Agent 补齐）----
+    "SentimentAnalysisAgent": ("舆情管家", "📰", "新闻舆情·舆论倾向·市场情绪面"),
 }
 
 

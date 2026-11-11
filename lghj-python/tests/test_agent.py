@@ -223,7 +223,7 @@ def test_chat_stream_nonempty(client: httpx.Client, suffix: str):
 # ====================== 扩展接口：Agent 流程可视化（trace / agent_team） ======================
 
 def test_agent_team_endpoint(client: httpx.Client):
-    """GET /api/v1/agent_team：团队结构 = 队长 + 6 专家（含职能描述）+ 本地工具名。"""
+    """GET /api/v1/agent_team：团队结构 = 队长 + 专家（原 6 + 立项扩展）+ 本地工具名。"""
     agent_id = client.get(f"{AGENT}/api/v1/query_ai_agent_config_list").json()["data"][0]["agentId"]
     r = client.get(f"{AGENT}/api/v1/agent_team", params={"agentId": agent_id})
     assert r.status_code == 200
@@ -234,10 +234,11 @@ def test_agent_team_endpoint(client: httpx.Client):
     assert {e["name"] for e in team["experts"]} == {
         "MarketAnalysisAgent", "QuantTechnicalAgent", "PersonalTradeProfileAgent",
         "RiskAssessmentAgent", "PortfolioAdviceAgent", "ComplianceDisclosureAgent",
-    }, f"应有 6 个专家: {team['experts']}"
+        "SentimentAnalysisAgent",  # 立项扩展：舆情分析
+    }, f"专家集合不符: {team['experts']}"
     for e in team["experts"]:
         assert e.get("description"), f"专家职能描述不应为空: {e}"
-    assert {"querySimTradeProfile", "queryRealtimeMarket"} <= set(team["tools"])
+    assert {"querySimTradeProfile", "queryRealtimeMarket", "queryStockNews"} <= set(team["tools"])
 
 
 def test_trace_endpoint_structure(client: httpx.Client, suffix: str):

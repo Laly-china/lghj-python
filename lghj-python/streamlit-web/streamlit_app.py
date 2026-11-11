@@ -107,6 +107,7 @@ _SIDE_AGENTS = [
     ("RiskAssessmentAgent", "🛡️", "风控管家"),
     ("PortfolioAdviceAgent", "🧩", "组合管家"),
     ("ComplianceDisclosureAgent", "⚖️", "合规管家"),
+    ("SentimentAnalysisAgent", "📰", "舆情管家"),  # 立项扩展
 ]
 
 if st.session_state.get("token"):

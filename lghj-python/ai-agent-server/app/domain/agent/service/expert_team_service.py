@@ -1,8 +1,9 @@
 """专家团（Expert Team）成员定义与权重配置服务。
 
 设计说明（与用户需求对齐）：
-- 专家团成员【角色固定、人数固定】：沿用投顾装配 YAML 中的 6 个专家 Agent，
-  顺序与职责严格对齐 投顾装配-investment-advisor-supervisor.yml 的 sub-agents。
+- 专家团成员【角色固定、人数固定】：沿用投顾装配 YAML 中的专家 Agent，
+  顺序与职责严格对齐 投顾装配-investment-advisor-supervisor.yml 的 sub-agents；
+  原 6 专家 + 立项扩展专家（舆情/事件/资金流向，逐个补齐）。
 - 用户【只能调整各成员权重】：每个成员权重 0~100 的整数，全部成员权重之和须为 100。
   权重表达"本次投资计划中各专家的意见占比"。
 - 权重【按用户独立保存】：userId -> {role_key: weight}，进程内存 Map（线程安全），
@@ -63,6 +64,13 @@ EXPERT_ROLES: list[dict] = [
         "name": "合规审查员",
         "desc": "输出合规提示和免责声明",
         "outputKey": "compliance_disclosure",
+    },
+    # ---- 立项扩展专家（申报书 8 类垂直投研 Agent 补齐，非原 Java）----
+    {
+        "key": "SentimentAnalysisAgent",
+        "name": "舆情分析师",
+        "desc": "分析个股新闻舆情、舆论倾向与市场情绪面",
+        "outputKey": "sentiment_analysis",
     },
 ]
 

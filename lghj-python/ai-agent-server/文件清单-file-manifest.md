@@ -63,7 +63,7 @@ Java→Python DDD 复现。原 Java 工程：`lghj-web-dist.tar/ai-agent-scaffoi
 | `domain/agent/service/armory/model_client.py` | `AiApiNode`（OpenAiApi）+ `ChatModelNode`（OpenAiChatModel）+ `AgentNode`（SpringAI 适配器） | litellm 客户端（OpenAI 兼容协议调 DeepSeek），api_base 由 base-url + completions-path 推导；**扩展 `RoutingLlmClient`**（多模型选择：按 userId 经 ModelConfigPort 取用户激活配置，20s TTL 缓存、按配置指纹复用客户端、上限 64；无配置/异常回落装配默认客户端） |
 | `domain/agent/service/armory/runtime.py` | `com.google.adk`（Event/Content/Part/Session/InMemoryRunner/BaseAgent/LlmAgent/LoopAgent/ParallelAgent/SequentialAgent） | ADK 语义的轻量运行时：会话服务、事件流、transfer_to_agent 层级编排、工具调用循环（MAX_TOOL_ROUNDS=10）；**扩展（原 Java 无）**：会话 trace 打点（run_start/llm_call/transfer/tool/agent_text，含耗时与结果摘要），只记录不影响对话行为 |
 | `domain/agent/service/armory/model_client.py` | `AiApiNode`（OpenAiApi）+ `ChatModelNode`（OpenAiChatModel）+ `AgentNode`（SpringAI 适配器） | litellm 客户端（OpenAI 兼容协议调 DeepSeek），api_base 由 base-url + completions-path 推导 |
-| `domain/agent/service/matter/local_tools.py` | `armory/matter/mcp/server/InvestmentTradeProfileMcpService.java`、`MarketRealtimeMcpService.java`、`InvestmentTradeProfileMcpServerConfig.java` | 本地工具：querySimTradeProfile / queryRealtimeMarket，工具描述、参数说明、错误文案照抄原 Java 注解；注册表 bean 名 investmentTradeProfileMcp / marketRealtimeMcp |
+| `domain/agent/service/matter/local_tools.py` | `armory/matter/mcp/server/InvestmentTradeProfileMcpService.java`、`MarketRealtimeMcpService.java`、`InvestmentTradeProfileMcpServerConfig.java` | 本地工具：querySimTradeProfile / queryRealtimeMarket，工具描述、参数说明、错误文案照抄原 Java 注解；注册表 bean 名 investmentTradeProfileMcp / marketRealtimeMcp；**立项扩展 `queryStockNews`**（个股新闻舆情，bean `stockNewsMcp`，复用行情聚合接口的 news，供舆情/事件分析 Agent） |
 
 ## 6. app/infrastructure/ 基础设施层（对应 `-infrastructure` 模块 + `-app` 模块端口实现）
 
@@ -83,7 +83,7 @@ Java→Python DDD 复现。原 Java 工程：`lghj-web-dist.tar/ai-agent-scaffoi
 
 | 文件 | 对应原文件 | 说明 |
 | --- | --- | --- |
-| `投顾装配-investment-advisor-supervisor.yml` | `agent/investment_advisor_supervisor.yml` | 主装配：6 专家 Agent（MarketAnalysis/QuantTechnical/PersonalTradeProfile/RiskAssessment/PortfolioAdvice/ComplianceDisclosure）+ InvestmentAdvisorSupervisor 层级编排，instruction 七段式文本原文照抄；支持 `${VAR:default}` 环境占位 |
+| `投顾装配-investment-advisor-supervisor.yml` | `agent/investment_advisor_supervisor.yml` | 主装配：6 专家 Agent（MarketAnalysis/QuantTechnical/PersonalTradeProfile/RiskAssessment/PortfolioAdvice/ComplianceDisclosure）+ **立项扩展专家**（SentimentAnalysis 舆情，yml 内「立项扩展」标记）+ InvestmentAdvisorSupervisor 层级编排，instruction 七段式文本原文照抄；支持 `${VAR:default}` 环境占位 |
 | `投顾本地覆写-investment-advisor-supervisor-local.yml` | `agent/investment_advisor_supervisor_local.yml` | 本地可选覆写（问候语处理实验配置）；默认不加载（AGENT_CONFIG_LOCAL_ENABLED=true 开启）；原文件内含明文 api-key，出于安全未照抄，改为环境变量占位 |
 | `skills/investment-research/投研技能-investment-research-SKILL.md` | `agent/skills/investment-research/SKILL.md` | 投研技能说明（照抄），经 load_skill 工具加载（对应原 Java SkillsTool） |
 

@@ -169,7 +169,7 @@ litellm 走 OpenAI 兼容协议调 DeepSeek（环境变量 `DEEPSEEK_API_KEY`）
 （原 Java 无）：`GET /api/v1/trace`（会话执行轨迹：run_start/llm_call/transfer/
 tool/agent_text 五种事件）、`GET /api/v1/agent_team`（团队结构）、历史会话
 `history_list/history_messages/history_session`（MySQL 持久化）、个人知识库
-`kb_upload/kb_list/kb_doc` + 检索工具 `queryKnowledgeBase`；6 个专家智能体注册为
+`kb_upload/kb_list/kb_doc` + 检索工具 `queryKnowledgeBase`；全部专家智能体（原 6 + 立项扩展）均注册为
 可独立对话 agent。供 AI 投顾终端 agent-web（8502，马维斯式布局：管家团队侧栏 /
 实时思考可视化 / 历史会话 / 知识库）与 Streamlit 前端的状态灯可视化使用。
 
@@ -177,7 +177,7 @@ tool/agent_text 五种事件）、`GET /api/v1/agent_team`（团队结构）、�
 
 同花顺风格交易终端（原 Vue 前端的替代）：行情/K线/分时/预测/新闻、模拟交易、自选、
 社区、管理端，契约与原前端一致。另含**本工程扩展**的马维斯式 AI 投顾体验：侧栏
-「管家团队」（队长+6 专家点击单独对话）/「个人知识库」（上传 txt/md，投顾可检索
+「管家团队」（队长+专家点击单独对话）/「个人知识库」（上传 txt/md，投顾可检索
 引用）/「历史对话」（MySQL 持久化、可滑动回看续聊）+ 账户卡片固定左下角；AI 投顾
 页发问后实时显示思考过程（右上角"N 位管家工作中"指示 + 管家卡片条状态灯 +
 点击下钻思考面板）。依赖 8091 扩展接口，不可用时自动降级。
@@ -186,7 +186,9 @@ tool/agent_text 五种事件）、`GET /api/v1/agent_team`（团队结构）、�
 自配多个 OpenAI 兼容提供商（DeepSeek/通义千问/Kimi/GLM/OpenAI/自定义）并一键切换：
 配置存 8080 新表 `user_model_config`（`/api/user/model-config/*`，api_key 打码回显）；
 8091 的 `RoutingLlmClient` 聊天时按 userId 经 internal API `/api/internal/model-config`
-取激活配置（20s 缓存），未配置/异常时回落上述默认 DeepSeek 客户端。新表 SQL 已追加到
+取激活配置（20s 缓存），未配置/异常时回落上述默认 DeepSeek 客户端。
+
+**扩展：立项垂直 Agent 补齐（2026-11，申报书「8 类垂直投研 Agent」要求）**——在原 6 专家基础上逐个补齐舆情分析 / 事件分析 / 资金流向：已落地 `SentimentAnalysisAgent`（舆情管家，工具 `queryStockNews` 复用东财新闻链路）。新增专家只需改装配 yml（agents + sub-agents + Supervisor 清单）与 `expert_team_service.EXPERT_ROLES`，运行时/权重/可视化自动适配。新表 SQL 已追加到
 `sql/数据库初始化-init.sql`，**已有库需单独执行该表的建表语句**（勿整文件重跑，会 DROP 数据）。
 
 ### prediction-server（股价预测服务，Phase 6，端口 8001）

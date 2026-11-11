@@ -1,7 +1,8 @@
-# 智能体装配配置（主装配：6 个专家 Agent + Supervisor 层级编排）
+# 智能体装配配置（主装配：原 6 专家 Agent + Supervisor 层级编排 + 立项扩展专家）
 # 复现自原 Java 文件：
 #   ai-agent-scaffoid-feng-app/src/main/resources/agent/investment_advisor_supervisor.yml
-# instruction 文本严格照抄原文，禁止改动。
+# 原 6 专家与 Supervisor 的 instruction 文本严格照抄原文，禁止改动；
+# 「立项扩展」标记的专家/工具为申报书要求的垂直 Agent 补齐（舆情/事件/资金流向），非原 Java 内容。
 # 注：api-key 支持环境变量占位（${VAR:默认值}），运行时优先读取 DEEPSEEK_API_KEY。
 ai:
   agent:
@@ -26,6 +27,8 @@ ai:
                     name: investmentTradeProfileMcp
                 - local:
                     name: marketRealtimeMcp
+                - local:   # 立项扩展：个股新闻舆情（舆情/事件分析 Agent 数据源）
+                    name: stockNewsMcp
               tool-skills-list:
                 - type: resource
                   path: agent/skills/investment-research
@@ -72,6 +75,14 @@ ai:
                   你是合规审查员。检查投资建议是否存在保本承诺、确定性收益、诱导交易或忽视风险的问题。
                   输出必要的合规提示，明确说明内容仅用于信息参考，不构成个性化证券投资建议或收益承诺。
                 output-key: compliance_disclosure
+              - name: SentimentAnalysisAgent   # 立项扩展：舆情分析 Agent（申报书 8 类垂直投研之一）
+                description: 分析个股新闻舆情、舆论倾向与市场情绪面。
+                instruction: |
+                  你是舆情分析师。根据用户提供的股票或行业问题，分析媒体报道倾向、舆论热度、情绪面变化和对股价的潜在影响。
+                  分析舆情必须调用 queryStockNews 工具获取真实新闻列表；工具失败或无新闻时明确说明舆情数据缺口，不要编造新闻。
+                  输出应包含：舆情概览（偏多/偏空/中性）、媒体关注点归纳、代表性报道引用（注明时间与来源）、情绪面对投资决策的提示。
+                  不要承诺收益，不要给出确定性预测；舆情结论需注明时效性（基于近期公开报道）。
+                output-key: sentiment_analysis
             agent-workflows:
               - type: supervisor
                 name: InvestmentAdvisorSupervisor
@@ -84,8 +95,10 @@ ai:
                   - RiskAssessmentAgent：风险识别和风控边界
                   - PortfolioAdviceAgent：组合配置、仓位纪律和观察清单
                   - ComplianceDisclosureAgent：合规提示和免责声明
+                  - SentimentAnalysisAgent：新闻舆情、舆论倾向和市场情绪面分析（立项扩展）
 
                   当用户提到“我的持仓、我的交易、模拟交易、交易记录、复盘、个性化、风险偏好、仓位建议”等内容时，先调度 PersonalTradeProfileAgent，并把画像结论用于风险评估和组合建议。
+                  当用户提到“舆情、新闻、舆论、情绪、热度、市场情绪、大家怎么看”等内容时，调度 SentimentAnalysisAgent 分析情绪面。
 
                   最终回复必须使用中文，结构包含：
                   1. 问题理解
@@ -105,5 +118,6 @@ ai:
                   - RiskAssessmentAgent
                   - PortfolioAdviceAgent
                   - ComplianceDisclosureAgent
+                  - SentimentAnalysisAgent   # 立项扩展：舆情分析
             runner:
               agent-name: InvestmentAdvisorSupervisor
