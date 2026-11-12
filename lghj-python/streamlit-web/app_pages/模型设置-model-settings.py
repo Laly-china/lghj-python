@@ -79,7 +79,8 @@ preset = st.selectbox("提供商预设", list(PRESETS.keys()), key="mc_preset",
 if st.session_state.get("mc_preset_prev") != preset:
     # 切换预设：清掉表单控件的旧值，让新预设默认值生效
     st.session_state.mc_preset_prev = preset
-    for k in ("mc_name", "mc_key", "mc_model", "mc_base", "mc_path"):
+    for k in ("mc_name", "mc_key", "mc_model", "mc_base", "mc_path",
+              "mc_models", "mc_model_pick"):
         st.session_state.pop(k, None)
     p = PRESETS[preset]
     st.session_state.mc_name = "" if preset == "自定义" else preset
@@ -92,7 +93,7 @@ if st.session_state.get("mc_preset_prev") != preset:
 if st.session_state.pop("mc_clear_key", False):
     st.session_state.pop("mc_key", None)
 
-with st.form("model_config_form", border=True):
+with st.container(border=True):
     st.text_input("配置名称（保存后可用于切换）", key="mc_name",
                   help="如：DeepSeek主力 / 千问备用。同名保存会覆盖旧配置")
     st.text_input("API Key", key="mc_key", type="password",
@@ -104,10 +105,40 @@ with st.form("model_config_form", border=True):
         st.text_input("补全路径", key="mc_path",
                       help="地址已含 /v1 等版本段时用 /chat/completions；"
                            "裸域名（如 DeepSeek）用 /v1/chat/completions")
-    st.text_input("模型名", key="mc_model")
+
+    # ---- 模型名：支持从厂商实时拉取列表选择（跟随厂商上下架，无需手填猜测）----
+    mcol1, mcol2 = st.columns([3, 1.2])
+    with mcol1:
+        st.text_input("模型名", key="mc_model")
+    with mcol2:
+        st.write("")  # 对齐占位
+        if st.button("拉取模型列表", icon=":material/refresh:", use_container_width=True,
+                     help="用上面填的地址和 Key 调厂商 /models 接口，拉取当前可用模型"):
+            ok, result = api.fetch_vendor_models(
+                st.session_state.get("mc_base") or "",
+                st.session_state.get("mc_key") or "",
+                st.session_state.get("mc_path") or "",
+            )
+            if ok:
+                st.session_state.mc_models = result
+                st.toast(f"拉到 {len(result)} 个模型", icon=":material/check_circle:")
+            else:
+                st.session_state.pop("mc_models", None)
+                st.error(result)
+    models = st.session_state.get("mc_models") or []
+    if models:
+        st.selectbox(
+            "从列表选择（自动填入模型名）",
+            models,
+            index=None,
+            key="mc_model_pick",
+            on_change=lambda: setattr(
+                st.session_state, "mc_model", st.session_state.get("mc_model_pick") or ""
+            ),
+        )
     st.caption(PRESETS[preset]["hint"])
 
-    if st.form_submit_button("保存配置", type="primary", use_container_width=True):
+    if st.button("保存配置", type="primary", use_container_width=True):
         name = (st.session_state.get("mc_name") or "").strip()
         key_val = (st.session_state.get("mc_key") or "").strip()
         base = (st.session_state.get("mc_base") or "").strip()
@@ -119,8 +150,9 @@ with st.form("model_config_form", border=True):
             ok, msg = api.model_config_save(name, base, key_val, model, path)
             if ok:
                 st.toast("配置已保存", icon=":material/check_circle:")
-                # 控件已实例化，不能直接改其 state：打标记，下次渲染前清空明文 key
+                # 打标记，下次渲染前清掉明文 key 与拉取的列表
                 st.session_state.mc_clear_key = True
+                st.session_state.pop("mc_models", None)
                 st.rerun()
             else:
                 st.error(msg)

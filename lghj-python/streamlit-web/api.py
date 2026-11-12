@@ -566,6 +566,43 @@ def model_config_delete(name: str) -> tuple[bool, str]:
 def model_config_activate(name: str) -> tuple[bool, str]:
     ok, _d, msg = main_api("POST", "/api/user/model-config/activate", params={"name": name})
     return ok, msg or ("已切换" if ok else "切换失败")
+
+
+def fetch_vendor_models(base_url: str, api_key: str, completions_path: str = "") -> tuple[bool, list[str] | str]:
+    """按厂商 OpenAI 兼容接口实时拉取可用模型列表（模型名跟随厂商更新，不依赖预置）。
+
+    GET {api_base}/models（api_base 推导规则与 8091 RoutingLlmClient 相同：
+    base_url + completions_path 剥掉 /chat/completions）。
+    返回 (ok, 模型id列表 | 错误提示)；key 只在本服务进程内直连厂商，不落任何存储。
+    """
+    base = (base_url or "").strip().rstrip("/")
+    path = (completions_path or "").strip()
+    suffix = "/chat/completions"
+    if path.endswith(suffix):
+        path = path[: -len(suffix)]
+    if not base:
+        return False, "请先填写接口地址"
+    if not (api_key or "").strip():
+        return False, "请先填写 API Key"
+    url = f"{base}{path}/models"
+    try:
+        r = http().get(url, headers={"Authorization": f"Bearer {api_key.strip()}"}, timeout=15)
+    except httpx.HTTPError as e:
+        return False, f"连接失败（{e.__class__.__name__}）：检查地址是否可达"
+    if r.status_code == 401 or r.status_code == 403:
+        return False, "API Key 无效或无权限（厂商返回 401/403）"
+    if r.status_code != 200:
+        return False, f"厂商返回 HTTP {r.status_code}，请确认地址与补全路径"
+    try:
+        data = r.json().get("data") or []
+        ids = sorted({str(m.get("id")) for m in data if m.get("id")})
+    except ValueError:
+        return False, "响应不是 JSON：该地址可能不支持 /models 列表接口"
+    if not ids:
+        return False, "厂商返回了空模型列表"
+    return True, ids
+
+
 def agent_trace(agent_id: str, user_id: int | str, session_id: str) -> list[dict]:
     """会话执行轨迹（8091 扩展接口）：[{seq,ts,type,agent,name,args,result,durationMs}, ...]。"""
     ok, data, _i = agent_api(
